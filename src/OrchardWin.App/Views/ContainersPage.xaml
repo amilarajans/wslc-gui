@@ -8,76 +8,79 @@
     xmlns:vm="using:OrchardWin.App.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="16" ColumnSpacing="12" RowSpacing="8">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <!-- Three-zone layout matching Orchard Containers: list | detail (header + metrics + config cards). -->
+    <Grid ColumnSpacing="0">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="300" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="280" MinWidth="220" />
+            <ColumnDefinition Width="1" />
+            <ColumnDefinition Width="*" MinWidth="420" />
         </Grid.ColumnDefinitions>
 
-        <InfoBar x:Name="AlertBar"
-                 Grid.Row="0" Grid.ColumnSpan="2"
-                 Severity="Error"
-                 IsOpen="False"
-                 IsClosable="True"
-                 CloseButtonClick="OnAlertBarClose" />
-
-        <!-- List pane -->
-        <Grid Grid.Row="1" Grid.Column="0" RowSpacing="8">
+        <!-- LIST PANE -->
+        <Grid Grid.Column="0" Padding="12,12,8,12" RowSpacing="8"
+              Background="{ThemeResource LayerFillColorDefaultBrush}">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0" ColumnSpacing="8">
+            <Grid Grid.Row="0" ColumnSpacing="6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Containers" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <Button Grid.Column="1" x:Name="RunButton" Click="OnRunClick" ToolTipService.ToolTip="Run a new container">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE768;" FontSize="14" />
-                        <TextBlock Text="Run" />
-                    </StackPanel>
+                <TextBox x:Name="SearchBox" Grid.Column="0"
+                         PlaceholderText="Search containers"
+                         TextChanged="OnSearchTextChanged" />
+                <Button Grid.Column="1" x:Name="RunButton" Click="OnRunClick"
+                        ToolTipService.ToolTip="Run a new container" Padding="10,6">
+                    <FontIcon Glyph="&#xE710;" FontSize="14" />
                 </Button>
             </Grid>
 
-            <TextBox Grid.Row="1" x:Name="SearchBox" PlaceholderText="Search containers"
-                     TextChanged="OnSearchTextChanged" />
-
-            <Grid Grid.Row="2" ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <ToggleSwitch Grid.Column="0" x:Name="RunningOnlyToggle"
-                              OnContent="Running only" OffContent="All containers"
-                              Toggled="OnRunningOnlyToggled" HorizontalAlignment="Left" />
-                <ComboBox Grid.Column="1" x:Name="SortCombo" Width="100" SelectionChanged="OnSortChanged">
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                <ToggleSwitch x:Name="RunningOnlyToggle"
+                              OnContent="Running" OffContent="All"
+                              Toggled="OnRunningOnlyToggled" />
+                <ComboBox x:Name="SortCombo" Width="100" SelectionChanged="OnSortChanged">
                     <ComboBoxItem Content="Name" Tag="Name" IsSelected="True" />
                     <ComboBoxItem Content="Status" Tag="Status" />
                     <ComboBoxItem Content="Image" Tag="Image" />
                 </ComboBox>
-            </Grid>
+            </StackPanel>
 
-            <ListView Grid.Row="3" x:Name="ContainersListView"
-                      SelectionMode="Extended"
+            <ListView Grid.Row="2" x:Name="ContainersListView"
+                      SelectionMode="Single"
                       SelectionChanged="OnSelectionChanged">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="8,8" />
+                        <Setter Property="MinHeight" Value="0" />
+                        <Setter Property="Margin" Value="0,1" />
+                    </Style>
+                </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="vm:ContainerRowVm">
-                        <controls:ListItemRow
-                            Icon="&#xE7B8;"
-                            IconColor="{x:Bind IconColor}"
-                            PrimaryText="{x:Bind PrimaryText}"
-                            SecondaryLeftText="{x:Bind SecondaryLeftText}"
-                            SecondaryRightText="{x:Bind SecondaryRightText}"
-                            ShowSandboxBadge="{x:Bind ShowSandboxBadge}" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Grid.Column="0" Glyph="&#xE7B8;" FontSize="14"
+                                      Foreground="{x:Bind IconBrush}" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind PrimaryText}" FontWeight="SemiBold" FontSize="13"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind SecondaryLeftText}" FontSize="11" Opacity="0.55"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{x:Bind SecondaryRightText}" FontSize="11"
+                                       Opacity="0.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       MaxWidth="100" />
+                        </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
                 <ListView.ContextFlyout>
@@ -86,69 +89,96 @@
             </ListView>
         </Grid>
 
-        <!-- Detail pane -->
-        <Grid Grid.Row="1" Grid.Column="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+        <Border Grid.Column="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-            <StackPanel x:Name="EmptyState" Grid.Row="0" Grid.RowSpan="2"
-                        VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-                <FontIcon Glyph="&#xE7B8;" FontSize="40" Opacity="0.4" HorizontalAlignment="Center" />
-                <TextBlock Text="Select a container" Opacity="0.6" HorizontalAlignment="Center" />
+        <!-- DETAIL PANE -->
+        <Grid Grid.Column="2">
+            <InfoBar x:Name="AlertBar" Severity="Error" IsOpen="False" IsClosable="True"
+                     VerticalAlignment="Top" Margin="12,8,12,0" CloseButtonClick="OnAlertBarClose"
+                     Canvas.ZIndex="10" />
+
+            <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                <FontIcon Glyph="&#xE7B8;" FontSize="48" Opacity="0.35" HorizontalAlignment="Center" />
+                <TextBlock Text="Select a container" Opacity="0.55" HorizontalAlignment="Center" FontSize="14" />
             </StackPanel>
 
-            <StackPanel x:Name="DetailRoot" Grid.Row="0" Visibility="Collapsed" Spacing="12" Padding="4,0,0,12">
-                <Grid ColumnSpacing="12">
+            <Grid x:Name="DetailRoot" Visibility="Collapsed" RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Header: name + actions (Orchard ContainerDetailHeader) -->
+                <Grid Grid.Row="0" Padding="20,16,16,12" ColumnSpacing="12"
+                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                      BorderThickness="0,0,0,1">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <FontIcon x:Name="DetailIcon" Grid.Column="0" Glyph="&#xE7B8;" FontSize="24" VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                        <TextBlock x:Name="DetailNameText" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                        <TextBlock x:Name="DetailStatusText" Opacity="0.7" FontSize="12" />
+
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock x:Name="DetailNameText" FontSize="20" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="DetailImageText" FontSize="12" Opacity="0.55"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
+                        <Button x:Name="StartButton" Content="Start" Click="OnStartClick"
+                                Style="{StaticResource AccentButtonStyle}" />
+                        <Button x:Name="StopButton" Content="Stop" Click="OnStopClick" />
+                        <Button x:Name="TerminalShButton" Content="Terminal (sh)" Click="OnTerminalClick" />
+                        <Button x:Name="TerminalBashButton" Content="Terminal (bash)" Click="OnTerminalBashClick" />
+                        <Button x:Name="LogsButton" Content="Logs" Click="OnLogsClick" />
+                        <Button x:Name="RemoveButton" Content="Remove" Click="OnRemoveClick" />
                     </StackPanel>
                 </Grid>
 
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="StartButton" Click="OnStartClick" ToolTipService.ToolTip="Start container">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE768;" FontSize="12" />
-                            <TextBlock Text="Start" />
+                <ScrollViewer Grid.Row="1" Padding="16,12,16,24">
+                    <StackPanel Spacing="12">
+                        <!-- Window picker -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                            <Button x:Name="Win5m" Content="5m" Tag="FiveMin" Click="OnStatsWindowClick" Padding="10,4" MinWidth="40" />
+                            <Button x:Name="Win15m" Content="15m" Tag="FifteenMin" Click="OnStatsWindowClick" Padding="10,4" MinWidth="40" />
+                            <Button x:Name="Win1h" Content="1h" Tag="OneHour" Click="OnStatsWindowClick" Padding="10,4" MinWidth="40" />
+                            <Button x:Name="Win24h" Content="24h" Tag="TwentyFourHours" Click="OnStatsWindowClick" Padding="10,4" MinWidth="44" />
                         </StackPanel>
-                    </Button>
-                    <Button x:Name="StopButton" Click="OnStopClick" ToolTipService.ToolTip="Stop container">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE71A;" FontSize="12" />
-                            <TextBlock Text="Stop" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="ForceStopButton" Click="OnForceStopClick" ToolTipService.ToolTip="Force stop (SIGKILL)">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE71A;" FontSize="12" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
-                            <TextBlock Text="Force Stop" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="TerminalButton" Click="OnTerminalClick" ToolTipService.ToolTip="Open a terminal shell">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE756;" FontSize="12" />
-                            <TextBlock Text="Terminal" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="RemoveButton" Click="OnRemoveClick" ToolTipService.ToolTip="Remove container">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE74D;" FontSize="12" />
-                            <TextBlock Text="Remove" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </StackPanel>
 
-            <ScrollViewer Grid.Row="1" x:Name="DetailScroller" Visibility="Collapsed">
-                <StackPanel x:Name="DetailContent" Spacing="16" Padding="4,4,4,24" />
-            </ScrollViewer>
+                        <!-- Metric cards built in code for live updates -->
+                        <StackPanel x:Name="MetricsHost" Spacing="12" />
+
+                        <!-- Config cards (Overview / Environment / Image / Process / Network / Labels) -->
+                        <Grid x:Name="ConfigGrid" ColumnSpacing="12" RowSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Border x:Name="OverviewCard" Grid.Row="0" Grid.Column="0" Style="{StaticResource DetailCardStyle}" />
+                            <Border x:Name="EnvironmentCard" Grid.Row="0" Grid.Column="1" Style="{StaticResource DetailCardStyle}" />
+                            <Border x:Name="ImageCard" Grid.Row="1" Grid.Column="0" Style="{StaticResource DetailCardStyle}" />
+                            <Border x:Name="ProcessCard" Grid.Row="1" Grid.Column="1" Style="{StaticResource DetailCardStyle}" />
+                            <Border x:Name="NetworkCard" Grid.Row="2" Grid.Column="0" Style="{StaticResource DetailCardStyle}" />
+                            <Border x:Name="LabelsCard" Grid.Row="2" Grid.Column="1" Style="{StaticResource DetailCardStyle}" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
         </Grid>
     </Grid>
+
+    <Page.Resources>
+        <Style x:Key="DetailCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+    </Page.Resources>
 </Page>

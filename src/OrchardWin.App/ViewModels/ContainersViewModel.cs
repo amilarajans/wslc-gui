@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
+using Microsoft.UI.Xaml.Media;
 using OrchardWin.Core.Models;
 using OrchardWin.Core.Services;
 using Windows.UI;
@@ -21,6 +22,8 @@ public sealed record ContainerRowVm(
     bool ShowSandboxBadge)
 {
     public string Id => Container.Configuration.Id;
+    // FontIcon.Foreground needs a Brush; WASDK x:Bind rejects Color→Brush.
+    public SolidColorBrush IconBrush => new(IconColor);
 }
 
 /// Thin glue for ContainersPage: selection/filter/sort UI state and command wiring over
@@ -179,18 +182,17 @@ public sealed partial class ContainersViewModel : ObservableObject
         var name = !string.IsNullOrWhiteSpace(c.Configuration.Hostname)
             ? c.Configuration.Hostname!
             : ShortId(c.Configuration.Id);
+        // Orchard list row: IP under name, short image ref on the right.
         var image = c.Configuration.Image.Reference;
+        var shortImage = image.Contains('/') ? image[(image.LastIndexOf('/') + 1)..] : image;
         var address = NetworkAddress(c);
-        var secondaryLeft = address is not null ? address : c.Status;
-        var secondaryRight = address is not null
-            ? $"{c.Status} · {image}"
-            : image;
+        var secondaryLeft = address ?? (IsRunning(c) ? "running" : c.Status);
 
         return new(
             Container: c,
             PrimaryText: name,
             SecondaryLeftText: secondaryLeft,
-            SecondaryRightText: secondaryRight,
+            SecondaryRightText: shortImage,
             IconColor: IsRunning(c) ? Colors.LimeGreen : Colors.Gray,
             ShowSandboxBadge: c.IsSandbox());
     }
@@ -210,10 +212,23 @@ public sealed partial class ContainersViewModel : ObservableObject
 
     private void RaiseStatsChanged()
     {
+        OnPropertyChanged(nameof(SelectedSample));
+        OnPropertyChanged(nameof(SelectedRawStats));
         OnPropertyChanged(nameof(SelectedCpuPercentText));
-        OnPropertyChanged(nameof(SelectedMemoryPercentText));
+        OnPropertyChanged(nameof(SelectedMemoryText));
+        OnPropertyChanged(nameof(SelectedMemorySecondaryText));
+        OnPropertyChanged(nameof(SelectedNetworkRxText));
+        OnPropertyChanged(nameof(SelectedNetworkTxText));
+        OnPropertyChanged(nameof(SelectedDiskReadText));
+        OnPropertyChanged(nameof(SelectedDiskWriteText));
         OnPropertyChanged(nameof(SelectedCpuHistory));
         OnPropertyChanged(nameof(SelectedMemoryHistory));
+        OnPropertyChanged(nameof(SelectedNetworkRxHistory));
+        OnPropertyChanged(nameof(SelectedNetworkTxHistory));
+        OnPropertyChanged(nameof(SelectedDiskReadHistory));
+        OnPropertyChanged(nameof(SelectedDiskWriteHistory));
+        OnPropertyChanged(nameof(SelectedCoresAllocated));
+        OnPropertyChanged(nameof(SelectedMemoryLimitBytes));
     }
 
     public static bool IsRunning(Container c) => string.Equals(c.Status, "running", StringComparison.OrdinalIgnoreCase);
@@ -228,23 +243,75 @@ public sealed partial class ContainersViewModel : ObservableObject
         return hostname.EndsWith('.') ? hostname[..^1] : hostname;
     }
 
-    // MARK: - Selected-container live stats (drives the detail pane's resource sparklines)
+    // MARK: - Selected-container live stats (detail pane resource cards)
 
-    private StatsSample? SelectedSample =>
+    [ObservableProperty]
+    private StatsWindow _selectedStatsWindow = StatsWindow.FiveMin;
+
+    partial void OnSelectedStatsWindowChanged(StatsWindow value) => RaiseStatsChanged();
+
+    public StatsSample? SelectedSample =>
         SelectedContainer is null ? null : _services.StatsService.LatestSamples.GetValueOrDefault(SelectedContainer.Configuration.Id);
 
-    public string SelectedCpuPercentText => SelectedSample is { } s ? $"{s.CpuPercent:F0}%" : "--";
-    public string SelectedMemoryPercentText => SelectedSample is { } s ? $"{s.MemoryPercent:F0}%" : "--";
+    public ContainerStats? SelectedRawStats =>
+        SelectedContainer is null
+            ? null
+            : _services.StatsService.ContainerStats.FirstOrDefault(s => s.Id == SelectedContainer.Configuration.Id);
 
-    public IReadOnlyList<double> SelectedCpuHistory => RecentHistory().Select(s => s.CpuPercent).ToList();
-    public IReadOnlyList<double> SelectedMemoryHistory => RecentHistory().Select(s => s.MemoryPercent).ToList();
+    public int SelectedCoresAllocated =>
+        SelectedContainer?.Configuration.Resources.Cpus ?? 0;
 
-    private IReadOnlyList<StatsSample> RecentHistory()
+    public long SelectedMemoryLimitBytes =>
+        SelectedRawStats?.MemoryLimitBytes
+        ?? SelectedSample?.MemoryLimitBytes
+        ?? SelectedContainer?.Configuration.Resources.MemoryInBytes
+        ?? 0;
+
+    public string SelectedCpuPercentText => SelectedSample is { } s ? $"{s.CpuPercent:F1}%" : "--";
+    public string SelectedMemoryText => SelectedRawStats is { } r
+        ? ByteFormat.Memory(r.MemoryUsageBytes)
+        : SelectedSample is { } s ? ByteFormat.Memory(s.MemoryBytes) : "--";
+    public string SelectedMemorySecondaryText
+    {
+        get
+        {
+            var limit = SelectedMemoryLimitBytes;
+            return limit > 0 ? $"{ByteFormat.Memory(limit)} allocated" : "";
+        }
+    }
+    public string SelectedNetworkRxText => SelectedRawStats is { } r
+        ? $"↓ {ByteFormat.String(r.NetworkRxBytes)}"
+        : "↓ --";
+    public string SelectedNetworkTxText => SelectedRawStats is { } r
+        ? $"↑ {ByteFormat.String(r.NetworkTxBytes)}"
+        : "↑ --";
+    public string SelectedDiskReadText => SelectedRawStats is { } r
+        ? $"R {ByteFormat.String(r.BlockReadBytes)}"
+        : "R --";
+    public string SelectedDiskWriteText => SelectedRawStats is { } r
+        ? $"W {ByteFormat.String(r.BlockWriteBytes)}"
+        : "W --";
+
+    public IReadOnlyList<double> SelectedCpuHistory => WindowedHistory().Select(s => s.CpuPercent).ToList();
+    public IReadOnlyList<double> SelectedMemoryHistory => WindowedHistory().Select(s => (double)s.MemoryBytes).ToList();
+    public IReadOnlyList<double> SelectedNetworkRxHistory => WindowedHistory().Select(s => s.NetworkRxPerSec / 1_048_576).ToList();
+    public IReadOnlyList<double> SelectedNetworkTxHistory => WindowedHistory().Select(s => s.NetworkTxPerSec / 1_048_576).ToList();
+    public IReadOnlyList<double> SelectedDiskReadHistory => WindowedHistory().Select(s => s.BlockReadPerSec / 1024).ToList();
+    public IReadOnlyList<double> SelectedDiskWriteHistory => WindowedHistory().Select(s => s.BlockWritePerSec / 1024).ToList();
+
+    private IReadOnlyList<StatsSample> WindowedHistory()
     {
         if (SelectedContainer is null) return [];
         var history = _services.StatsService.History.Samples(new StatsKey(SelectedContainer.Configuration.Id));
-        return history.Count > 60 ? history.TakeLast(60).ToList() : history;
+        var cutoff = DateTimeOffset.Now - SelectedStatsWindow.Duration();
+        var windowed = history.Where(s => s.Timestamp >= cutoff).ToList();
+        return windowed.Count > 0 ? windowed : history.Count > 60 ? history.TakeLast(60).ToList() : history;
     }
+
+    public Task OpenTerminalBashAsync() =>
+        SelectedContainer is null
+            ? Task.CompletedTask
+            : _services.TerminalLauncher.OpenShellAsync(ShellTargetKind.Container, SelectedContainer.Configuration.Id, "bash");
 
     // MARK: - Lifecycle actions on the selected container
 
