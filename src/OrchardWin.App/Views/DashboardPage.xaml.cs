@@ -1,8 +1,12 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using OrchardWin.App.Controls;
 using OrchardWin.App.ViewModels;
 using OrchardWin.Core.Services;
+using Windows.UI;
 
 namespace OrchardWin.App.Views;
 
@@ -11,6 +15,14 @@ public sealed partial class DashboardPage : Page
     private DashboardViewModel? _viewModel;
     private DispatcherTimer? _diskRefreshTimer;
     private bool _listsBound;
+
+    private static readonly Color CpuColor = Color.FromArgb(255, 64, 156, 255);
+    private static readonly Color MemColor = Color.FromArgb(255, 176, 100, 255);
+    private static readonly Color NetRxColor = Color.FromArgb(255, 107, 203, 119);
+    private static readonly Color NetTxColor = Color.FromArgb(255, 244, 162, 97);
+    private static readonly Color DiskRColor = Color.FromArgb(255, 78, 205, 196);
+    private static readonly Color DiskWColor = Color.FromArgb(255, 231, 111, 155);
+    private static readonly Color ReclaimColor = Color.FromArgb(255, 245, 158, 11);
 
     public DashboardPage()
     {
@@ -24,32 +36,36 @@ public sealed partial class DashboardPage : Page
         base.OnNavigatedTo(e);
         var services = (AppServices)e.Parameter;
         _viewModel = new DashboardViewModel(services);
-        // Bind list ItemsSource once — reassigning every tick caused ListView item recycle flicker.
         ContainerRowsList.ItemsSource = _viewModel.ContainerRows;
         MachineRowsList.ItemsSource = _viewModel.MachineRows;
         _listsBound = true;
 
         _viewModel.PropertyChanged += (_, e2) =>
         {
-            // Only tiles / unavailable banner need imperative updates; row sparklines bind in place.
             if (e2.PropertyName is null
                 or nameof(DashboardViewModel.DiskUsage)
                 or nameof(DashboardViewModel.StatsUnavailable)
-                or nameof(DashboardViewModel.MachineRows))
+                or nameof(DashboardViewModel.MachineRows)
+                or nameof(DashboardViewModel.SystemMetrics)
+                or nameof(DashboardViewModel.SelectedWindow)
+                or nameof(DashboardViewModel.EmptyContainersMessage)
+                or nameof(DashboardViewModel.ContainerRows))
             {
                 DispatcherQueue.RunOnUi(ApplyChromeState);
             }
         };
-        ApplyChromeState();
 
+        // SystemMetrics nested property changes also need a redraw.
+        _viewModel.SystemMetrics.PropertyChanged += (_, _) =>
+            DispatcherQueue.RunOnUi(ApplySystemCharts);
+
+        ApplyChromeState();
+        HighlightWindowButton(StatsWindow.FiveMin);
         _ = _viewModel.LoadAsync();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Slow re-fetch of disk usage while the page is visible, mirroring the Swift
-        // original's 20s diskRefreshTimer - container/machine stats themselves come from
-        // StatsService's own always-on sampler, not a page-local timer.
         _diskRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
         _diskRefreshTimer.Tick += async (_, _) =>
         {
@@ -64,7 +80,29 @@ public sealed partial class DashboardPage : Page
         _diskRefreshTimer = null;
     }
 
-    /// Disk tiles + section visibility only. Never rebinds list ItemsSource.
+    private void OnWindowClick(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null || sender is not Button { Tag: string tag }) return;
+        if (!Enum.TryParse<StatsWindow>(tag, out var window)) return;
+        _viewModel.SetWindow(window);
+        HighlightWindowButton(window);
+    }
+
+    private void HighlightWindowButton(StatsWindow window)
+    {
+        void Style(Button b, bool on)
+        {
+            b.Background = on
+                ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
+                : new SolidColorBrush(Colors.Transparent);
+        }
+
+        Style(Win5m, window == StatsWindow.FiveMin);
+        Style(Win15m, window == StatsWindow.FifteenMin);
+        Style(Win1h, window == StatsWindow.OneHour);
+        Style(Win24h, window == StatsWindow.TwentyFourHours);
+    }
+
     private void ApplyChromeState()
     {
         if (_viewModel is null) return;
@@ -72,7 +110,6 @@ public sealed partial class DashboardPage : Page
         UnavailableBar.IsOpen = _viewModel.StatsUnavailable;
         MachineSection.Visibility = _viewModel.MachineRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        // Keep ItemsSource pinned to the same ObservableCollection instance.
         if (_listsBound)
         {
             if (!ReferenceEquals(ContainerRowsList.ItemsSource, _viewModel.ContainerRows))
@@ -80,6 +117,9 @@ public sealed partial class DashboardPage : Page
             if (!ReferenceEquals(MachineRowsList.ItemsSource, _viewModel.MachineRows))
                 MachineRowsList.ItemsSource = _viewModel.MachineRows;
         }
+
+        EmptyContainersText.Text = _viewModel.EmptyContainersMessage;
+        EmptyContainersText.Visibility = _viewModel.ContainerRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var usage = _viewModel.DiskUsage;
         ContainersTile.Value = usage is null ? "--" : ByteFormat.String(usage.Containers.SizeInBytes);
@@ -90,5 +130,56 @@ public sealed partial class DashboardPage : Page
         VolumesTile.Detail = usage is null ? "--" : $"{usage.Volumes.Active}/{usage.Volumes.Total}";
         ReclaimableTile.Value = usage is null ? "--" : ByteFormat.String(usage.TotalReclaimable);
         ReclaimableTile.Detail = "Space";
+        ReclaimableTile.ValueColor = ReclaimColor;
+
+        ApplySystemCharts();
+    }
+
+    private void ApplySystemCharts()
+    {
+        if (_viewModel is null) return;
+        var m = _viewModel.SystemMetrics;
+
+        SystemChartsGrid.Visibility = m.HasData ? Visibility.Visible : Visibility.Collapsed;
+        SystemEmptyText.Visibility = m.HasData ? Visibility.Collapsed : Visibility.Visible;
+
+        CpuPrimaryText.Text = m.CpuPrimary;
+        CpuSecondaryText.Text = m.CpuSecondary;
+        CpuBar.Value = Math.Clamp(m.CpuPercent, 0, 100);
+        CpuBar.Foreground = new SolidColorBrush(CpuColor);
+
+        MemPrimaryText.Text = m.MemoryPrimary;
+        MemSecondaryText.Text = m.MemorySecondary;
+        MemBar.Value = Math.Clamp(m.MemoryPercent, 0, 100);
+        MemBar.Foreground = new SolidColorBrush(MemColor);
+
+        NetRxText.Text = m.NetworkRxText;
+        NetTxText.Text = m.NetworkTxText;
+        DiskReadText.Text = m.DiskReadText;
+        DiskWriteText.Text = m.DiskWriteText;
+
+        if (!m.HasData) return;
+
+        CpuChart.SetSeries(
+        [
+            new ChartSeries { Values = m.CpuSeries, Stroke = CpuColor, Thickness = 1.8 },
+        ]);
+
+        MemChart.SetSeries(
+        [
+            new ChartSeries { Values = m.MemorySeries, Stroke = MemColor, Thickness = 1.6, Fill = true },
+        ], guideValue: m.MemoryLimitBytes > 0 ? m.MemoryLimitBytes : null);
+
+        NetChart.SetSeries(
+        [
+            new ChartSeries { Values = m.NetworkRxSeries, Stroke = NetRxColor, Thickness = 1.5 },
+            new ChartSeries { Values = m.NetworkTxSeries, Stroke = NetTxColor, Thickness = 1.5 },
+        ]);
+
+        DiskChart.SetSeries(
+        [
+            new ChartSeries { Values = m.DiskReadSeries, Stroke = DiskRColor, Thickness = 1.5 },
+            new ChartSeries { Values = m.DiskWriteSeries, Stroke = DiskWColor, Thickness = 1.5 },
+        ]);
     }
 }

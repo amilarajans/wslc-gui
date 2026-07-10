@@ -34,6 +34,17 @@ public sealed partial class Sparkline : UserControl
         set => SetValue(StrokeColorProperty, value);
     }
 
+    /// When &gt; 0, Y axis is fixed to this max (e.g. 100 for CPU%). Otherwise auto-scales.
+    public static readonly DependencyProperty MaxValueProperty = DependencyProperty.Register(
+        nameof(MaxValue), typeof(double), typeof(Sparkline),
+        new PropertyMetadata(0.0, (d, _) => ((Sparkline)d).Redraw()));
+
+    public double MaxValue
+    {
+        get => (double)GetValue(MaxValueProperty);
+        set => SetValue(MaxValueProperty, value);
+    }
+
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
         // Ignore zero-size intermediate layout passes that would clear the polyline and flash.
@@ -54,10 +65,13 @@ public sealed partial class Sparkline : UserControl
             return;
         }
 
-        var max = 0.0001;
-        for (var i = 0; i < values.Count; i++)
+        var max = MaxValue > 0 ? MaxValue : 0.0001;
+        if (MaxValue <= 0)
         {
-            if (values[i] > max) max = values[i];
+            for (var i = 0; i < values.Count; i++)
+            {
+                if (values[i] > max) max = values[i];
+            }
         }
 
         var points = new PointCollection();
@@ -68,5 +82,6 @@ public sealed partial class Sparkline : UserControl
             points.Add(new Point(i * stepX, height - normalized * height));
         }
         Line.Points = points;
+        Line.Stroke = new SolidColorBrush(StrokeColor);
     }
 }

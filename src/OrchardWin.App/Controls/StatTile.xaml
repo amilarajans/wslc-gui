@@ -8,17 +8,20 @@
 
     <!-- A dashboard headline tile: icon, title, big value, small detail line. Mirrors
          Orchard's DashboardView.statTile. -->
-    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="12">
+    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="10" Padding="14,12">
         <Grid ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <FontIcon x:Name="IconGlyph" Grid.Column="0" FontSize="20" Opacity="0.6" VerticalAlignment="Top" />
+            <FontIcon x:Name="IconGlyph" Grid.Column="0" FontSize="18" Opacity="0.55" VerticalAlignment="Top" Margin="0,2,0,0" />
             <StackPanel Grid.Column="1" Spacing="2">
-                <TextBlock x:Name="TitleTextBlock" FontWeight="SemiBold" FontSize="13" />
-                <TextBlock x:Name="ValueTextBlock" FontSize="15" FontWeight="SemiBold" FontFamily="Cascadia Mono,Consolas" />
-                <TextBlock x:Name="DetailTextBlock" FontSize="11" Opacity="0.65" />
+                <TextBlock x:Name="TitleTextBlock" FontWeight="SemiBold" FontSize="12" Opacity="0.85" />
+                <TextBlock x:Name="ValueTextBlock" FontSize="18" FontWeight="SemiBold" FontFamily="Cascadia Mono,Consolas" />
+                <TextBlock x:Name="DetailTextBlock" FontSize="11" Opacity="0.55" />
             </StackPanel>
         </Grid>
     </Border>

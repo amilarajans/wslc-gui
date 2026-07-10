@@ -1,0 +1,26 @@
+<UserControl
+    x:Class="OrchardWin.App.Controls.MetricChart"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    MinHeight="120">
+
+    <!-- Multi-series line chart used by the System dashboard (CPU / Memory / Network / Disk). -->
+    <Grid x:Name="RootGrid" SizeChanged="OnSizeChanged">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="Transparent" CornerRadius="4">
+            <Canvas x:Name="PlotCanvas">
+                <!-- Grid + series polylines are built in code. -->
+            </Canvas>
+        </Border>
+
+        <StackPanel x:Name="YAxisLabels" Grid.Column="1" Margin="6,0,0,0"
+                    VerticalAlignment="Stretch" Width="36" />
+    </Grid>
+</UserControl>

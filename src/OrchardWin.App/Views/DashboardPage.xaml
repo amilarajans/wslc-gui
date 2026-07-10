@@ -8,94 +8,236 @@
     xmlns:vm="using:OrchardWin.App.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="20" RowSpacing="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <Page.Resources>
+        <Style x:Key="MetricWellStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+    </Page.Resources>
 
-        <TextBlock Grid.Row="0" Text="Dashboard" FontSize="24" FontWeight="SemiBold" />
+    <!-- Layout mirrors Orchard's DashboardView: disk tiles → System 2×2 charts → Container Utilisation table. -->
+    <ScrollViewer Padding="20,16,20,24">
+        <StackPanel Spacing="16">
+            <TextBlock Text="Dashboard" FontSize="22" FontWeight="SemiBold" />
 
-        <!-- Disk usage tiles -->
-        <Grid Grid.Row="1" ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <controls:StatTile Grid.Column="0" x:Name="ContainersTile" Icon="&#xE7B8;" Title="Containers" />
-            <controls:StatTile Grid.Column="1" x:Name="ImagesTile" Icon="&#xE91B;" Title="Images" />
-            <controls:StatTile Grid.Column="2" x:Name="VolumesTile" Icon="&#xE8A2;" Title="Volumes" />
-            <controls:StatTile Grid.Column="3" x:Name="ReclaimableTile" Icon="&#xE74D;" Title="Reclaimable" />
-        </Grid>
+            <!-- Disk usage tiles -->
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <controls:StatTile Grid.Column="0" x:Name="ContainersTile" Icon="&#xE7B8;" Title="Containers" />
+                <controls:StatTile Grid.Column="1" x:Name="ImagesTile" Icon="&#xE91B;" Title="Images" />
+                <controls:StatTile Grid.Column="2" x:Name="VolumesTile" Icon="&#xE8A2;" Title="Volumes" />
+                <controls:StatTile Grid.Column="3" x:Name="ReclaimableTile" Icon="&#xE74D;" Title="Reclaimable" />
+            </Grid>
 
-        <InfoBar Grid.Row="2" x:Name="UnavailableBar" Severity="Warning" Title="Stats Unavailable"
-                 Message="Running containers were found but no statistics came back - check that the WSL container service is up to date and running."
-                 IsOpen="False" IsClosable="False" />
+            <InfoBar x:Name="UnavailableBar" Severity="Warning" Title="Stats Unavailable"
+                     Message="Running containers were found but no statistics came back - check that the WSL container service is up to date and running."
+                     IsOpen="False" IsClosable="False" />
 
-        <ScrollViewer Grid.Row="3">
-            <StackPanel Spacing="20">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="Container Utilisation" FontSize="16" FontWeight="SemiBold" />
-                    <Grid ColumnSpacing="8" Padding="6,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Name" Opacity="0.6" FontSize="12" />
-                        <TextBlock Grid.Column="1" Text="Status" Opacity="0.6" FontSize="12" />
-                        <TextBlock Grid.Column="2" Text="CPU" Opacity="0.6" FontSize="12" />
-                        <TextBlock Grid.Column="3" Text="Memory" Opacity="0.6" FontSize="12" />
-                        <TextBlock Grid.Column="4" Text="Network" Opacity="0.6" FontSize="12" />
-                        <TextBlock Grid.Column="5" Text="Disk" Opacity="0.6" FontSize="12" />
-                    </Grid>
-                    <!-- SelectionMode None + stable ItemsSource: rows update via OneWay x:Bind, no item recycle flicker -->
-                    <ListView x:Name="ContainerRowsList" SelectionMode="None">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Padding" Value="0" />
-                                <Setter Property="MinHeight" Value="0" />
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="vm:UtilisationRow">
-                                <Grid ColumnSpacing="8" Padding="6,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" Opacity="0.7" />
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                        <controls:Sparkline Values="{x:Bind CpuHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="DodgerBlue" />
-                                        <TextBlock Text="{x:Bind CpuPercentText, Mode=OneWay}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
-                                        <controls:Sparkline Values="{x:Bind MemoryHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="MediumPurple" />
-                                        <TextBlock Text="{x:Bind MemoryPercentText, Mode=OneWay}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
-                                    </StackPanel>
-                                    <controls:Sparkline Grid.Column="4" Values="{x:Bind NetworkHistory, Mode=OneWay}" Width="50" Height="18" StrokeColor="SeaGreen" />
-                                    <controls:Sparkline Grid.Column="5" Values="{x:Bind DiskHistory, Mode=OneWay}" Width="50" Height="18" StrokeColor="Chocolate" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </StackPanel>
+            <!-- System charts (Orchard SystemStatsDashboard) -->
+            <StackPanel x:Name="SystemSection" Spacing="12">
+                <Grid>
+                    <TextBlock Text="System" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                        <Button x:Name="Win5m" Content="5m" Click="OnWindowClick" Tag="FiveMin" Padding="12,4" MinWidth="44" />
+                        <Button x:Name="Win15m" Content="15m" Click="OnWindowClick" Tag="FifteenMin" Padding="12,4" MinWidth="44" />
+                        <Button x:Name="Win1h" Content="1h" Click="OnWindowClick" Tag="OneHour" Padding="12,4" MinWidth="44" />
+                        <Button x:Name="Win24h" Content="24h" Click="OnWindowClick" Tag="TwentyFourHours" Padding="12,4" MinWidth="48" />
+                    </StackPanel>
+                </Grid>
 
-                <StackPanel x:Name="MachineSection" Spacing="8" Visibility="Collapsed">
-                    <TextBlock Text="Machine Utilisation" FontSize="16" FontWeight="SemiBold" />
+                <Grid x:Name="SystemChartsGrid" ColumnSpacing="12" RowSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- CPU -->
+                    <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource MetricWellStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="CPU" FontWeight="SemiBold" FontSize="14" />
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Name="CpuPrimaryText" FontSize="20" FontWeight="SemiBold" FontFamily="Cascadia Mono,Consolas" />
+                                <TextBlock x:Name="CpuSecondaryText" FontSize="11" Opacity="0.55" />
+                                <ProgressBar x:Name="CpuBar" Maximum="100" Height="4" />
+                            </StackPanel>
+                            <controls:MetricChart x:Name="CpuChart" Height="140" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Memory -->
+                    <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource MetricWellStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Memory" FontWeight="SemiBold" FontSize="14" />
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Name="MemPrimaryText" FontSize="20" FontWeight="SemiBold" FontFamily="Cascadia Mono,Consolas" />
+                                <TextBlock x:Name="MemSecondaryText" FontSize="11" Opacity="0.55" />
+                                <ProgressBar x:Name="MemBar" Maximum="100" Height="4" />
+                            </StackPanel>
+                            <controls:MetricChart x:Name="MemChart" Height="140" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Network -->
+                    <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource MetricWellStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Network" FontWeight="SemiBold" FontSize="14" />
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <TextBlock x:Name="NetRxText" FontSize="13" FontFamily="Cascadia Mono,Consolas" Foreground="#6BCB77" />
+                                <TextBlock x:Name="NetTxText" FontSize="13" FontFamily="Cascadia Mono,Consolas" Foreground="#F4A261" />
+                            </StackPanel>
+                            <controls:MetricChart x:Name="NetChart" Height="140" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Disk -->
+                    <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource MetricWellStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Disk" FontWeight="SemiBold" FontSize="14" />
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <TextBlock x:Name="DiskReadText" FontSize="13" FontFamily="Cascadia Mono,Consolas" Foreground="#4ECDC4" />
+                                <TextBlock x:Name="DiskWriteText" FontSize="13" FontFamily="Cascadia Mono,Consolas" Foreground="#E76F9B" />
+                            </StackPanel>
+                            <controls:MetricChart x:Name="DiskChart" Height="140" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <TextBlock x:Name="SystemEmptyText" Text="Collecting system metrics…" Opacity="0.55" FontSize="12"
+                           Visibility="Collapsed" />
+            </StackPanel>
+
+            <!-- Container Utilisation table -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Container Utilisation" FontSize="16" FontWeight="SemiBold" />
+
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="10">
+                    <StackPanel>
+                        <!-- Header -->
+                        <Grid Padding="14,10" ColumnSpacing="8"
+                              Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.4*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="56" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Container" FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
+                            <TextBlock Grid.Column="1" Text="CPU" FontSize="12" FontWeight="SemiBold" Opacity="0.7" HorizontalAlignment="Right" />
+                            <TextBlock Grid.Column="2" Text="Memory" FontSize="12" FontWeight="SemiBold" Opacity="0.7" HorizontalAlignment="Right" />
+                            <TextBlock Grid.Column="3" Text="Network I/O" FontSize="12" FontWeight="SemiBold" Opacity="0.7" HorizontalAlignment="Right" />
+                            <TextBlock Grid.Column="4" Text="Block I/O" FontSize="12" FontWeight="SemiBold" Opacity="0.7" HorizontalAlignment="Right" />
+                            <TextBlock Grid.Column="5" Text="PIDs" FontSize="12" FontWeight="SemiBold" Opacity="0.7" HorizontalAlignment="Right" />
+                        </Grid>
+
+                        <ListView x:Name="ContainerRowsList" SelectionMode="None">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="vm:UtilisationRow">
+                                    <Grid Padding="14,10" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1.4*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="56" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE768;" FontSize="12"
+                                                      Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{x:Bind CpuPercentText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="12"
+                                                       HorizontalAlignment="Right" />
+                                            <controls:Sparkline Values="{x:Bind CpuHistory, Mode=OneWay}"
+                                                                MaxValue="100" Width="72" Height="16"
+                                                                StrokeColor="DodgerBlue" HorizontalAlignment="Right" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" Spacing="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{x:Bind MemoryText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="12"
+                                                       HorizontalAlignment="Right" />
+                                            <TextBlock Text="{x:Bind MemoryPercentText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="10" Opacity="0.55"
+                                                       HorizontalAlignment="Right" />
+                                            <controls:Sparkline Values="{x:Bind MemoryHistory, Mode=OneWay}"
+                                                                MaxValue="100" Width="72" Height="16"
+                                                                StrokeColor="MediumPurple" HorizontalAlignment="Right" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="3" Spacing="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{x:Bind NetworkRxText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="11"
+                                                       HorizontalAlignment="Right" />
+                                            <TextBlock Text="{x:Bind NetworkTxText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="11" Opacity="0.65"
+                                                       HorizontalAlignment="Right" />
+                                            <controls:Sparkline Values="{x:Bind NetworkHistory, Mode=OneWay}"
+                                                                Width="72" Height="16"
+                                                                StrokeColor="MediumSeaGreen" HorizontalAlignment="Right" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="4" Spacing="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{x:Bind BlockReadText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="11"
+                                                       HorizontalAlignment="Right" />
+                                            <TextBlock Text="{x:Bind BlockWriteText, Mode=OneWay}"
+                                                       FontFamily="Cascadia Mono,Consolas" FontSize="11" Opacity="0.65"
+                                                       HorizontalAlignment="Right" />
+                                            <controls:Sparkline Values="{x:Bind DiskHistory, Mode=OneWay}"
+                                                                Width="72" Height="16"
+                                                                StrokeColor="Tomato" HorizontalAlignment="Right" />
+                                        </StackPanel>
+
+                                        <TextBlock Grid.Column="5" Text="{x:Bind PidsText, Mode=OneWay}"
+                                                   FontFamily="Cascadia Mono,Consolas" FontSize="12"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <TextBlock x:Name="EmptyContainersText" Padding="14,16" Opacity="0.55" FontSize="13"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Machine Utilisation (when present) -->
+            <StackPanel x:Name="MachineSection" Spacing="8" Visibility="Collapsed">
+                <TextBlock Text="Machine Utilisation" FontSize="16" FontWeight="SemiBold" />
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="8">
                     <ListView x:Name="MachineRowsList" SelectionMode="None">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
@@ -106,23 +248,29 @@
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:UtilisationRow">
-                                <Grid ColumnSpacing="8" Padding="6,4">
+                                <Grid Padding="8,6" ColumnSpacing="10">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="2*" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" Opacity="0.7" />
-                                    <controls:Sparkline Grid.Column="2" Values="{x:Bind CpuHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="DodgerBlue" />
-                                    <controls:Sparkline Grid.Column="3" Values="{x:Bind MemoryHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="MediumPurple" />
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                        <controls:Sparkline Values="{x:Bind CpuHistory, Mode=OneWay}" MaxValue="100" Width="48" Height="16" StrokeColor="DodgerBlue" />
+                                        <TextBlock Text="{x:Bind CpuPercentText, Mode=OneWay}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                        <controls:Sparkline Values="{x:Bind MemoryHistory, Mode=OneWay}" MaxValue="100" Width="48" Height="16" StrokeColor="MediumPurple" />
+                                        <TextBlock Text="{x:Bind MemoryText, Mode=OneWay}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="3" Text="{x:Bind Status, Mode=OneWay}" Opacity="0.65" HorizontalAlignment="Right" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                </StackPanel>
+                </Border>
             </StackPanel>
-        </ScrollViewer>
-    </Grid>
+        </StackPanel>
+    </ScrollViewer>
 </Page>
