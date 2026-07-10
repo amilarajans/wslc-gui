@@ -22,7 +22,7 @@ public sealed partial class NetworksPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        _services = (AppServices)e.Parameter;
+        _services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new NetworksViewModel(_services);
         _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
         ApplyViewModelState();

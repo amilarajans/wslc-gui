@@ -34,8 +34,8 @@ public sealed partial class DashboardPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        var services = (AppServices)e.Parameter;
-        _viewModel = new DashboardViewModel(services);
+        var args = NavigationArgs.From(e.Parameter);
+        _viewModel = new DashboardViewModel(args.Services);
         ContainerRowsList.ItemsSource = _viewModel.ContainerRows;
         MachineRowsList.ItemsSource = _viewModel.MachineRows;
         _listsBound = true;
@@ -86,6 +86,13 @@ public sealed partial class DashboardPage : Page
         if (!Enum.TryParse<StatsWindow>(tag, out var window)) return;
         _viewModel.SetWindow(window);
         HighlightWindowButton(window);
+    }
+
+    /// Orchard posts NavigateToContainer when a utilisation row name is clicked.
+    private void OnContainerNameClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id } || string.IsNullOrEmpty(id)) return;
+        App.MainWindow.NavigateTo("containers", selectContainerId: id);
     }
 
     private void HighlightWindowButton(StatsWindow window)

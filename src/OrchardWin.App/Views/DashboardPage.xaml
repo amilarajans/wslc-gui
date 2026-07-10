@@ -165,13 +165,22 @@
                                             <ColumnDefinition Width="56" />
                                         </Grid.ColumnDefinitions>
 
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <FontIcon Glyph="&#xE768;" FontSize="12"
-                                                      Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
-                                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"
-                                                       Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                        </StackPanel>
+                                        <Button Grid.Column="0"
+                                                Click="OnContainerNameClick"
+                                                Tag="{x:Bind Id}"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="0"
+                                                HorizontalAlignment="Left"
+                                                HorizontalContentAlignment="Left">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE768;" FontSize="12"
+                                                          Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                                <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"
+                                                           Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
 
                                         <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
                                             <TextBlock Text="{x:Bind CpuPercentText, Mode=OneWay}"

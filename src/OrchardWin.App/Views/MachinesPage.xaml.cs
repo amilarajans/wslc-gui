@@ -33,7 +33,7 @@ public sealed partial class MachinesPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        _services = (AppServices)e.Parameter;
+        _services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new MachinesViewModel(_services);
         _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyState);
         ApplyState();

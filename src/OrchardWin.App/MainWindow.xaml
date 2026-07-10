@@ -53,52 +53,82 @@
                        VerticalAlignment="Center" />
         </Grid>
 
+        <!-- Grouped sidebar mirrors Orchard: Dashboard + Compute / Resources / Networking + Logs -->
         <NavigationView x:Name="RootNav"
                         Grid.Row="1"
                         PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="True"
-                        OpenPaneLength="220"
+                        OpenPaneLength="236"
+                        IsPaneToggleButtonVisible="True"
                         SelectionChanged="RootNav_SelectionChanged">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Dashboard" Tag="dashboard">
+                <NavigationViewItem x:Name="NavDashboard" Content="Dashboard" Tag="dashboard">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE80F;" />
+                        <FontIcon Glyph="&#xE9D9;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Containers" Tag="containers">
+
+                <NavigationViewItemHeader Content="Compute" />
+                <NavigationViewItem x:Name="NavContainers" Content="Containers" Tag="containers">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7B8;" />
                     </NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="ContainersBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Images" Tag="images">
+                <NavigationViewItem x:Name="NavMachines" Content="Machines" Tag="machines">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE7C5;" />
+                        <FontIcon Glyph="&#xE950;" />
+                    </NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="MachinesBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NavSandboxes" Content="Sandboxes" Tag="sandboxes">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE72E;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Machines" Tag="machines">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE977;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem Content="Networks" Tag="networks">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE839;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem Content="DNS" Tag="dns">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE774;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem Content="Local AI &amp; Sandboxes" Tag="models">
+
+                <NavigationViewItemHeader Content="Resources" />
+                <NavigationViewItem x:Name="NavModels" Content="AI Models" Tag="models">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE99A;" />
                     </NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="ModelsBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Logs" Tag="logs">
+                <NavigationViewItem x:Name="NavImages" Content="Images" Tag="images">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE7BA;" />
+                        <FontIcon Glyph="&#xE81E;" />
+                    </NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="ImagesBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                </NavigationViewItem>
+
+                <NavigationViewItemHeader Content="Networking" />
+                <NavigationViewItem x:Name="NavDns" Content="DNS" Tag="dns">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE968;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NavNetworks" Content="Networks" Tag="networks">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE968;" />
+                    </NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="NetworksBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                </NavigationViewItem>
+
+                <NavigationViewItemHeader Content="Observability" />
+                <NavigationViewItem x:Name="NavLogs" Content="Logs" Tag="logs">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7C3;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>

@@ -22,7 +22,7 @@ public sealed partial class SettingsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        var services = (AppServices)e.Parameter;
+        var services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new SettingsViewModel(services);
         _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
         ApplyViewModelState();

@@ -63,7 +63,7 @@ public sealed partial class ImagesPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        _services = (AppServices)e.Parameter;
+        _services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new ImagesViewModel(_services);
         _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
 

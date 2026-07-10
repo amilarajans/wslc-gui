@@ -22,7 +22,7 @@ public sealed partial class LogsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        var services = (AppServices)e.Parameter;
+        var services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new LogsViewModel(services);
         _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
         ApplyViewModelState();

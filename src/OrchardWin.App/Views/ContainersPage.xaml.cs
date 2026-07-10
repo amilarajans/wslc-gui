@@ -18,6 +18,7 @@ public sealed partial class ContainersPage : Page
 {
     private ContainersViewModel? _viewModel;
     private DispatcherTimer? _pollTimer;
+    private string? _pendingSelectId;
 
     // Guards against the synthetic SelectionChanged events raised while ApplyViewModelState
     // reassigns ItemsSource/replays SelectedItems from ViewModel.SelectedIds - without this,
@@ -34,12 +35,51 @@ public sealed partial class ContainersPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        var services = (AppServices)e.Parameter;
-        _viewModel = new ContainersViewModel(services);
+        var args = NavigationArgs.From(e.Parameter);
+        _pendingSelectId = args.SelectContainerId;
+        _viewModel = new ContainersViewModel(args.Services);
         _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
         ApplyViewModelState();
 
-        _ = _viewModel.LoadAsync();
+        _ = LoadAndMaybeSelectAsync();
+    }
+
+    /// Called from Dashboard (and MainWindow when already on this page) to highlight a container.
+    public void SelectContainer(string containerId)
+    {
+        _pendingSelectId = containerId;
+        TryApplyPendingSelection();
+    }
+
+    private async Task LoadAndMaybeSelectAsync()
+    {
+        if (_viewModel is null) return;
+        await _viewModel.LoadAsync();
+        TryApplyPendingSelection();
+    }
+
+    private void TryApplyPendingSelection()
+    {
+        if (_viewModel is null || string.IsNullOrEmpty(_pendingSelectId)) return;
+
+        var id = _pendingSelectId;
+        // Match full id or hostname (dashboard may surface either depending on display).
+        var row = _viewModel.ContainerRows.FirstOrDefault(r =>
+            string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(r.PrimaryText, id, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(r.Container.Configuration.Hostname, id, StringComparison.OrdinalIgnoreCase));
+
+        if (row is null)
+        {
+            // Rows may still be empty until Refresh; keep pending for next ApplyViewModelState.
+            return;
+        }
+
+        _pendingSelectId = null;
+        _viewModel.SelectedIds.Clear();
+        _viewModel.SelectedIds.Add(row.Id);
+        _viewModel.SelectedContainer = row.Container;
+        ApplyViewModelState();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -81,6 +121,10 @@ public sealed partial class ContainersPage : Page
         {
             _isRestoringSelection = false;
         }
+
+        // Dashboard → Containers deep-link: apply once rows exist.
+        if (!string.IsNullOrEmpty(_pendingSelectId) && _viewModel.ContainerRows.Count > 0)
+            TryApplyPendingSelection();
 
         var alert = _viewModel.AlertMessage;
         AlertBar.IsOpen = !string.IsNullOrEmpty(alert);
