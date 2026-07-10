@@ -92,6 +92,7 @@ src/
   OrchardWin.Core/   # net10.0 — models, services, wslc/wsl backends (no WinUI)
   OrchardWin.App/    # net10.0-windows — WinUI 3 shell, pages, view models
 ARCHITECTURE.md      # Porting decisions, VERIFY notes, platform gaps
+STATUS.md            # Living doc: current focus, done, next (update as we go)
 ```
 
 Business logic lives in **Core** and talks to the OS only through `ICommandRunner` + backend interfaces. The **App** project is UI and Windows-only hosting.
