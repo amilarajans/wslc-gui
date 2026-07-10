@@ -212,12 +212,18 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<IReadOnlyList<ContainerImage>> ListImagesAsync(CancellationToken ct = default)
     {
-        // Confirmed subcommand; `--format json` shape is assumed to slot directly into
-        // ContainerImage (it already carries [JsonPropertyName] attributes matching
-        // Orchard's CodingKeys).
+        // Real wslc (verified on Windows): `image ls` is an alias for `image list`, and
+        // `--format json` emits Docker-style rows
+        //   { "Created", "Id", "Repository", "Size", "Tag" }
+        // — not Orchard's nested { reference, descriptor: { digest, mediaType, size } }.
+        // Mapping into ContainerImage happens in MapWslcImageListRow; deserializing the wire
+        // shape straight into ContainerImage used to fail on the required properties and
+        // ParseJsonArrayOrLines swallowed that into an empty list (images page looked blank).
         var result = await RunAsync(["image", "ls", "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("image ls", result.ExitCode, result.Stderr);
-        return ParseJsonArrayOrLines<ContainerImage>(result.Stdout, "image list");
+        return ParseJsonArrayOrLines<WslcImageListRow>(result.Stdout, "image list")
+            .Select(MapWslcImageListRow)
+            .ToList();
     }
 
     public async Task PullImageAsync(string reference, IProgress<ImagePullProgress>? progress = null, CancellationToken ct = default)
@@ -279,18 +285,15 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<ImageInspection> InspectImageAsync(string reference, CancellationToken ct = default)
     {
-        // VERIFY: `image inspect --format json` (Docker-familiar mirror per task brief).
-        // Assumed shape matches ImageInspection directly (name/digest/mediaType/size/
-        // variants[]), mirroring what Orchard's LiveContainerBackend.inspectImage builds by
-        // hand from the OCI index + per-platform config blobs - NOT Docker's own nested
-        // `docker image inspect` shape (Config/Architecture/Os/...), which would need a
-        // translation layer if wslc mirrors that instead.
-        var result = await RunAsync(["image", "inspect", reference, "--format", "json"], ct);
+        // Real wslc (verified): `image inspect` has no `--format` flag (passing it errors)
+        // and always prints a Docker-style JSON array of image objects (Id, RepoTags,
+        // RepoDigests, Size, Architecture, Os, Config, ...). Map that into ImageInspection.
+        var result = await RunAsync(["image", "inspect", reference], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("image inspect", result.ExitCode, result.Stderr);
 
-        var inspection = ParseJsonObjectOrFirstOfArray<ImageInspection>(result.Stdout, "image inspection");
-        if (inspection is null) throw OrchardWinException.DecodeFailed("image inspection");
-        return inspection;
+        var row = ParseJsonObjectOrFirstOfArray<WslcImageInspectRow>(result.Stdout, "image inspection");
+        if (row is null) throw OrchardWinException.DecodeFailed("image inspection");
+        return MapWslcImageInspect(row, reference);
     }
 
     // MARK: - Networks
@@ -421,6 +424,106 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         var usage = ParseJsonObjectOrFirstOfArray<SystemDiskUsage>(result.Stdout, "disk usage");
         if (usage is null) throw OrchardWinException.DecodeFailed("disk usage");
         return usage;
+    }
+
+    // MARK: - wslc image wire shapes (Docker-compatible)
+
+    /// Wire row from `wslc image ls --format json`. Property names match the real CLI
+    /// (PascalCase); PropertyNameCaseInsensitive handles either casing.
+    private sealed class WslcImageListRow
+    {
+        public long Created { get; set; }
+        public string Id { get; set; } = "";
+        public string Repository { get; set; } = "";
+        public long Size { get; set; }
+        public string Tag { get; set; } = "";
+    }
+
+    private sealed class WslcImageInspectRow
+    {
+        public string Id { get; set; } = "";
+        public string Architecture { get; set; } = "";
+        public string Os { get; set; } = "linux";
+        public long Size { get; set; }
+        public List<string>? RepoTags { get; set; }
+        public List<string>? RepoDigests { get; set; }
+        public WslcImageConfig? Config { get; set; }
+    }
+
+    private sealed class WslcImageConfig
+    {
+        public List<string>? Cmd { get; set; }
+        public List<string>? Entrypoint { get; set; }
+        public List<string>? Env { get; set; }
+        public string? WorkingDir { get; set; }
+        public string? User { get; set; }
+    }
+
+    private static ContainerImage MapWslcImageListRow(WslcImageListRow row)
+    {
+        var repo = string.IsNullOrWhiteSpace(row.Repository) || row.Repository == "<none>"
+            ? null
+            : row.Repository;
+        var tag = string.IsNullOrWhiteSpace(row.Tag) || row.Tag == "<none>"
+            ? null
+            : row.Tag;
+
+        // Prefer repository:tag; fall back to bare repo, then image id for dangling images.
+        var reference = (repo, tag) switch
+        {
+            (not null, not null) => $"{repo}:{tag}",
+            (not null, null) => repo,
+            _ => string.IsNullOrEmpty(row.Id) ? "unknown" : row.Id,
+        };
+
+        return new ContainerImage
+        {
+            Reference = reference,
+            Descriptor = new ContainerImageDescriptor
+            {
+                Digest = string.IsNullOrEmpty(row.Id) ? reference : row.Id,
+                // wslc list rows don't carry a media type; a generic OCI index type is fine
+                // for display (ImageInspection fills in a better value when selected).
+                MediaType = "application/vnd.oci.image.index.v1+json",
+                Size = row.Size,
+            },
+        };
+    }
+
+    private static ImageInspection MapWslcImageInspect(WslcImageInspectRow row, string requestedReference)
+    {
+        var name = row.RepoTags is { Count: > 0 } tags
+            ? tags[0]
+            : (string.IsNullOrEmpty(requestedReference) ? row.Id : requestedReference);
+
+        var digest = row.RepoDigests is { Count: > 0 } digests
+            ? digests[0]
+            : row.Id;
+
+        var os = string.IsNullOrEmpty(row.Os) ? "linux" : row.Os;
+        var arch = string.IsNullOrEmpty(row.Architecture) ? "unknown" : row.Architecture;
+        var config = row.Config;
+
+        return new ImageInspection
+        {
+            Name = name,
+            Digest = digest,
+            MediaType = "application/vnd.oci.image.config.v1+json",
+            Size = row.Size,
+            Variants =
+            [
+                new ImageInspectionVariant
+                {
+                    Platform = $"{os}/{arch}",
+                    Size = row.Size,
+                    Entrypoint = config?.Entrypoint,
+                    Cmd = config?.Cmd,
+                    Env = config?.Env,
+                    WorkingDir = config?.WorkingDir,
+                    User = string.IsNullOrEmpty(config?.User) ? null : config!.User,
+                },
+            ],
+        };
     }
 
     // MARK: - Process/JSON plumbing
