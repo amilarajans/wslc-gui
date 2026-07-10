@@ -24,7 +24,15 @@ public sealed partial class DnsPage : Page
         base.OnNavigatedTo(e);
         _services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new DnsViewModel(_services);
-        _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
+        DomainsList.ItemsSource = _viewModel.Rows;
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            // Rows are stable; only chrome (loading/empty) needs a pass when counts change.
+            if (e.PropertyName is null
+                or nameof(DnsViewModel.Rows)
+                or nameof(DnsViewModel.IsDnsLoading))
+                DispatcherQueue.RunOnUi(ApplyViewModelState);
+        };
         ApplyViewModelState();
 
         _ = _viewModel.LoadAsync();
@@ -60,7 +68,8 @@ public sealed partial class DnsPage : Page
         LoadingPanel.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
         EmptyPanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
         DomainsList.Visibility = !isLoading && !isEmpty ? Visibility.Visible : Visibility.Collapsed;
-        DomainsList.ItemsSource = _viewModel.Rows;
+        if (!ReferenceEquals(DomainsList.ItemsSource, _viewModel.Rows))
+            DomainsList.ItemsSource = _viewModel.Rows;
     }
 
     private async void OnAddDomainClick(object sender, RoutedEventArgs e)

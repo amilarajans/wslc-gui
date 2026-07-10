@@ -31,7 +31,17 @@ public sealed partial class SandboxesPage : Page
         base.OnNavigatedTo(e);
         var services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new SandboxesViewModel(services);
-        _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
+        ManagedList.ItemsSource = _viewModel.ManagedRows;
+        DetectedList.ItemsSource = _viewModel.DetectedRows;
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null
+                or nameof(SandboxesViewModel.ManagedRows)
+                or nameof(SandboxesViewModel.DetectedRows)
+                or nameof(SandboxesViewModel.SelectedId)
+                or nameof(SandboxesViewModel.SelectedSandbox))
+                DispatcherQueue.RunOnUi(ApplyViewModelState);
+        };
         ApplyViewModelState();
 
         _ = _viewModel.LoadAsync();
@@ -131,8 +141,10 @@ public sealed partial class SandboxesPage : Page
 
         ManagedSection.Visibility = _viewModel.ManagedRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         DetectedSection.Visibility = _viewModel.DetectedRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        ManagedList.ItemsSource = _viewModel.ManagedRows;
-        DetectedList.ItemsSource = _viewModel.DetectedRows;
+        if (!ReferenceEquals(ManagedList.ItemsSource, _viewModel.ManagedRows))
+            ManagedList.ItemsSource = _viewModel.ManagedRows;
+        if (!ReferenceEquals(DetectedList.ItemsSource, _viewModel.DetectedRows))
+            DetectedList.ItemsSource = _viewModel.DetectedRows;
 
         ApplyDetail();
     }

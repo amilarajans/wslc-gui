@@ -4,35 +4,27 @@ using OrchardWin.Core.Services;
 
 namespace OrchardWin.App.ViewModels;
 
-/// What kind of resource a <see cref="LogTargetItem"/> points at - mirrors Swift's `LogTarget`
-/// enum, letting one target picker list both containers and machines.
 public enum LogTargetKind { Container, Machine }
 
-/// One selectable entry in the Logs page's target picker.
-public sealed record LogTargetItem(LogTargetKind Kind, string Id)
+public sealed record LogTargetItem(LogTargetKind Kind, string Id, string DisplayText)
 {
-    // Disambiguates the two kinds in a single flat picker list - this port skips Swift's
-    // sectioned "Containers"/"Machines" picker groups (see LogsPage's file header) in favor of
-    // one flat list with a suffix.
-    public string DisplayText => Kind == LogTargetKind.Machine ? $"{Id} (machine)" : Id;
+    // Equality by kind+id so selection survives rebuilds that mint new display strings.
+    public bool SameAs(LogTargetItem? other) =>
+        other is not null && Kind == other.Kind
+        && string.Equals(Id, other.Id, StringComparison.OrdinalIgnoreCase);
 }
 
-/// Backs LogsPage: a single log pane's target selection, raw/filtered lines, and pause state.
-/// Ported at reduced scope from Orchard's `MultiLogView.swift`'s `LogPaneView` - this port
-/// shows one pane only (no split-view windowing; see LogsPage's file header) but keeps that
-/// pane's own behavior 1:1: default to the first running container, poll while unpaused,
-/// filter client-side, and drop a fetch result if the selection moved on while it was in
-/// flight. The page's DispatcherTimer drives the ~2s poll by calling <see cref="RefreshAsync"/>;
-/// this class holds no timer of its own (mirrors the rest of this app's pages, e.g.
-/// DashboardPage owning its own poll timer rather than the ViewModel).
+/// Single log pane: target picker + filtered lines. Collections are mutated in place so the
+/// 2s poll does not thrash ComboBox/ListView ItemsSource.
 public sealed partial class LogsViewModel : ObservableObject
 {
     private readonly AppServices _services;
     private List<string> _rawLines = [];
     private bool _isFetching;
+    private string? _pendingSelectId;
 
-    [ObservableProperty]
-    private ObservableCollection<LogTargetItem> _targets = [];
+    public ObservableCollection<LogTargetItem> Targets { get; } = [];
+    public ObservableCollection<string> DisplayLines { get; } = [];
 
     [ObservableProperty]
     private LogTargetItem? _selectedTarget;
@@ -47,35 +39,43 @@ public sealed partial class LogsViewModel : ObservableObject
     private bool _isLoading;
 
     [ObservableProperty]
-    private ObservableCollection<string> _displayLines = [];
-
-    /// "<n> matches" while a filter is active, else null - drives the filter bar's match-count
-    /// label, matching Swift's `Text("\(displayLines.count) matches")`.
-    [ObservableProperty]
     private string? _matchCountText;
+
+    [ObservableProperty]
+    private string? _statusMessage;
+
+    /// Bumped when log text content changes so the page can scroll without rebinding always.
+    [ObservableProperty]
+    private int _linesRevision;
 
     public LogsViewModel(AppServices services)
     {
         _services = services;
-
-        // Rebuild the picker whenever either source list changes. ContainerListService
-        // replaces its Containers collection wholesale on every load (a property-changed
-        // signal); MachineService mutates its Machines collection in place (a
-        // collection-changed signal) - see each service's own file for why.
         _services.ContainerListService.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ContainerListService.Containers)) RebuildTargets();
+            if (e.PropertyName is null or nameof(ContainerListService.Containers))
+                RebuildTargets();
         };
         _services.MachineService.Machines.CollectionChanged += (_, _) => RebuildTargets();
-
         RebuildTargets();
+    }
+
+    /// Prefer this container when opening Logs from Containers detail.
+    public void PreferContainer(string? containerId)
+    {
+        if (string.IsNullOrWhiteSpace(containerId)) return;
+        _pendingSelectId = containerId;
+        TryApplyPendingSelection();
+        _ = RefreshAsync();
     }
 
     partial void OnSelectedTargetChanged(LogTargetItem? value)
     {
         _rawLines = [];
-        DisplayLines = [];
+        DisplayLines.Clear();
         MatchCountText = null;
+        StatusMessage = null;
+        LinesRevision++;
         _ = RefreshAsync();
     }
 
@@ -84,68 +84,122 @@ public sealed partial class LogsViewModel : ObservableObject
     private void RebuildTargets()
     {
         var previous = SelectedTarget;
-
         var items = new List<LogTargetItem>();
+
         foreach (var container in _services.ContainerListService.Containers)
-            items.Add(new LogTargetItem(LogTargetKind.Container, container.Configuration.Id));
+        {
+            var id = container.Configuration.Id;
+            var name = !string.IsNullOrWhiteSpace(container.Configuration.Hostname)
+                ? container.Configuration.Hostname!
+                : (id.Length > 12 ? id[..12] : id);
+            var status = container.Status;
+            var label = string.Equals(status, "running", StringComparison.OrdinalIgnoreCase)
+                ? name
+                : $"{name} ({status})";
+            // Prefer name for the CLI when available (wslc accepts either).
+            var cliId = !string.IsNullOrWhiteSpace(container.Configuration.Hostname)
+                ? container.Configuration.Hostname!
+                : id;
+            items.Add(new LogTargetItem(LogTargetKind.Container, cliId, label));
+        }
+
         foreach (var machine in _services.MachineService.Machines)
-            items.Add(new LogTargetItem(LogTargetKind.Machine, machine.Id));
-        Targets = new ObservableCollection<LogTargetItem>(items);
+            items.Add(new LogTargetItem(LogTargetKind.Machine, machine.Id, $"{machine.Id} (machine)"));
+
+        if (ObservableCollectionSync.Sync(Targets, items, (a, b) => a.SameAs(b) && a.DisplayText == b.DisplayText))
+            OnPropertyChanged(nameof(Targets));
+
+        if (TryApplyPendingSelection())
+            return;
 
         if (previous is not null)
         {
-            // Keep the same logical selection alive across a rebuild (record value-equality,
-            // not reference - RebuildTargets always mints new item instances).
-            var stillThere = items.FirstOrDefault(i => i == previous);
+            var stillThere = items.FirstOrDefault(i => i.SameAs(previous));
             if (stillThere is not null)
             {
-                SelectedTarget = stillThere;
+                if (SelectedTarget is null || !SelectedTarget.SameAs(stillThere))
+                    SelectedTarget = stillThere;
                 return;
             }
         }
 
         if (SelectedTarget is null && items.Count > 0)
         {
-            // Default to the first running container, else just the first entry - mirrors
-            // MultiLogView's onAppear default.
-            var runningContainer = _services.ContainerListService.Containers
-                .FirstOrDefault(c => string.Equals(c.Status, "running", StringComparison.OrdinalIgnoreCase));
-            SelectedTarget = runningContainer is not null
-                ? items.FirstOrDefault(i => i.Kind == LogTargetKind.Container && i.Id == runningContainer.Configuration.Id)
-                : items[0];
+            var running = items.FirstOrDefault(i =>
+                i.Kind == LogTargetKind.Container && !i.DisplayText.Contains('(', StringComparison.Ordinal));
+            SelectedTarget = running ?? items[0];
         }
     }
 
-    /// Fetches the selected target's logs unless paused. Safe to call on every timer tick -
-    /// re-entrant calls are dropped, and a result for a target the user has since switched away
-    /// from is discarded, mirroring MultiLogView's post-await "did the selection change under
-    /// me" guard.
+    private bool TryApplyPendingSelection()
+    {
+        if (string.IsNullOrEmpty(_pendingSelectId)) return false;
+        var match = Targets.FirstOrDefault(t =>
+            string.Equals(t.Id, _pendingSelectId, StringComparison.OrdinalIgnoreCase)
+            || t.DisplayText.StartsWith(_pendingSelectId, StringComparison.OrdinalIgnoreCase)
+            || t.DisplayText.Contains(_pendingSelectId, StringComparison.OrdinalIgnoreCase));
+        if (match is null) return false;
+        _pendingSelectId = null;
+        if (!SelectedTarget.SameAs(match))
+            SelectedTarget = match;
+        return true;
+    }
+
     public async Task RefreshAsync()
     {
         if (IsPaused || _isFetching) return;
         var target = SelectedTarget;
-        if (target is null) return;
+        if (target is null)
+        {
+            StatusMessage = "Select a container or machine above";
+            return;
+        }
 
         _isFetching = true;
-        if (_rawLines.Count == 0) IsLoading = true;
+        if (_rawLines.Count == 0)
+        {
+            IsLoading = true;
+            StatusMessage = "Loading logs...";
+        }
 
         try
         {
-            var lines = target.Kind == LogTargetKind.Machine
-                ? await _services.MachineService.FetchLogsAsync(target.Id)
-                : await _services.ContainerListService.FetchContainerLogsAsync(target.Id);
+            IReadOnlyList<string> lines;
+            if (target.Kind == LogTargetKind.Machine)
+            {
+                lines = await _services.MachineService.FetchLogsAsync(target.Id);
+            }
+            else
+            {
+                lines = await _services.ContainerListService.FetchContainerLogsAsync(target.Id);
+            }
 
-            if (target != SelectedTarget) return; // selection moved on mid-fetch
+            if (!SelectedTarget.SameAs(target)) return;
+
+            // Skip UI work when the tail is unchanged.
+            if (_rawLines.Count == lines.Count
+                && _rawLines.Count > 0
+                && _rawLines[^1] == lines[^1]
+                && _rawLines[0] == lines[0])
+            {
+                StatusMessage = null;
+                return;
+            }
 
             _rawLines = [.. lines];
             ApplyFilter();
+            StatusMessage = lines.Count == 0
+                ? "No log output yet (container may not have written anything)."
+                : null;
         }
         catch (Exception ex)
         {
-            if (target != SelectedTarget) return;
+            if (!SelectedTarget.SameAs(target)) return;
+            Log.Ui.Error($"logs fetch failed for {target.Id}: {ex.Message}");
+            StatusMessage = $"Error: {ex.Message}";
             if (_rawLines.Count == 0)
             {
-                _rawLines = [$"Error: {ex.Message}"];
+                _rawLines = [$"Error loading logs for '{target.DisplayText}':", ex.Message];
                 ApplyFilter();
             }
         }
@@ -170,6 +224,15 @@ public sealed partial class LogsViewModel : ObservableObject
             filtered = _rawLines.Where(l => l.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
             MatchCountText = $"{filtered.Count} matches";
         }
-        DisplayLines = new ObservableCollection<string>(filtered);
+
+        if (ObservableCollectionSync.Sync(DisplayLines, filtered, (a, b) => a == b))
+        {
+            OnPropertyChanged(nameof(DisplayLines));
+            LinesRevision++;
+        }
+        else if (filtered.Count == 0 && DisplayLines.Count == 0)
+        {
+            LinesRevision++; // still notify empty state
+        }
     }
 }

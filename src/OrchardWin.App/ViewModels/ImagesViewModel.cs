@@ -1,17 +1,14 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI;
+using Microsoft.UI.Xaml;
 using OrchardWin.Core.Models;
 using OrchardWin.Core.Services;
-using Windows.UI;
 
 namespace OrchardWin.App.ViewModels;
 
-/// One row in the images list: the backing <see cref="ContainerImage"/> plus the derived
-/// display strings the row template binds to. Thin glue, same shape as Dashboard's
-/// UtilisationRow - recomputed from AppServices.ImageService/ContainerListService on every
-/// relevant change, not a re-implementation of what those services already track.
+/// One row in the images list. Icon colour is theme-brush Visibility toggles (green when a
+/// running container uses the image), matching Orchard ListImages / ListItemRow.
 public sealed record ImageRow(
     ContainerImage Image,
     string Name,
@@ -20,18 +17,28 @@ public sealed record ImageRow(
     bool IsInUseByRunning,
     string Reference)
 {
-    // x:Bind needs a Color-typed value to feed ListItemRow.IconColor directly - no converter
-    // is registered anywhere in this project, so expose the already-resolved color here
-    // rather than binding the raw bool.
-    public Color IconColor => IsInUseByRunning ? Colors.Green : Colors.Gray;
+    public Visibility RunningIconVisibility => IsInUseByRunning ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility IdleIconVisibility => IsInUseByRunning ? Visibility.Collapsed : Visibility.Visible;
 }
 
+/// One row in the "Used By Containers" table on the image detail pane.
+public sealed record ImageUserRow(
+    string ContainerId,
+    string DisplayName,
+    string Address,
+    string Hostname,
+    bool IsRunning);
+
+/// Thin glue for ImagesPage over ImageService + ContainerListService. Mirrors Orchard's
+/// ListImages / ImageDetail (Overview, Technical Details, Configuration, Used By Containers).
 public sealed partial class ImagesViewModel : ObservableObject
 {
     private readonly AppServices _services;
 
-    [ObservableProperty]
-    private ObservableCollection<ImageRow> _rows = [];
+    /// Mutated in place so ListView.ItemsSource stays stable across polls.
+    public ObservableCollection<ImageRow> Rows { get; } = [];
+
+    public ObservableCollection<ImageUserRow> ContainersUsingSelected { get; } = [];
 
     [ObservableProperty]
     private string _searchText = "";
@@ -41,6 +48,9 @@ public sealed partial class ImagesViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _sortAscending = true;
+
+    [ObservableProperty]
+    private bool _showOnlyInUse;
 
     [ObservableProperty]
     private ImageRow? _selectedRow;
@@ -54,9 +64,7 @@ public sealed partial class ImagesViewModel : ObservableObject
     [ObservableProperty]
     private string? _inspectionError;
 
-    /// Whether any running container is currently using SelectedRow's image - drives the
-    /// detail pane's "Delete" enablement, mirroring ImageDetailHeader.swift's
-    /// containersUsingImage check.
+    /// Whether any container (running or not) uses SelectedRow — drives Delete enablement.
     [ObservableProperty]
     private bool _selectedImageInUse;
 
@@ -64,44 +72,45 @@ public sealed partial class ImagesViewModel : ObservableObject
     {
         _services = services;
 
-        // ImageService/ContainerListService are already ObservableObject and self-refresh on
-        // their own polls - rebuild the derived row list whenever either publishes a change,
-        // rather than this ViewModel polling on its own.
         _services.ImageService.PropertyChanged += (_, e) =>
         {
-            // Include IsImagesLoading: LoadAsync may leave Images unchanged (equality short-
-            // circuit), so without this a re-navigated page would never rebuild Rows.
             if (e.PropertyName is null
-                or nameof(Core.Services.ImageService.Images)
-                or nameof(Core.Services.ImageService.IsImagesLoading))
+                or nameof(ImageService.Images)
+                or nameof(ImageService.IsImagesLoading))
                 Refresh();
         };
         _services.ContainerListService.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is null or nameof(Core.Services.ContainerListService.Containers))
+            if (e.PropertyName is null or nameof(ContainerListService.Containers))
+            {
                 Refresh();
+                RebuildContainersUsingSelected();
+            }
         };
 
-        // Critical: hydrate from any already-loaded service state. Frame navigation constructs
-        // a new ViewModel each visit; if LoadAsync finds unchanged images it won't re-raise
-        // Images PropertyChanged, and Rows would stay empty (blank page after tab switch).
+        // Hydrate from already-loaded service state (tab re-entry).
         Refresh();
     }
+
+    public AppServices Services => _services;
+
+    public bool IsImagesLoading => _services.ImageService.IsImagesLoading;
 
     public async Task LoadAsync()
     {
         await _services.ImageService.LoadAsync(showLoading: true);
-        // Always re-project after load — service may short-circuit when the list is unchanged.
         Refresh();
     }
 
     partial void OnSearchTextChanged(string value) => Refresh();
     partial void OnSortByChanged(ImageSortOption value) => Refresh();
     partial void OnSortAscendingChanged(bool value) => Refresh();
+    partial void OnShowOnlyInUseChanged(bool value) => Refresh();
 
     partial void OnSelectedRowChanged(ImageRow? value)
     {
         UpdateSelectedImageInUse();
+        RebuildContainersUsingSelected();
         _ = InspectSelectedAsync();
     }
 
@@ -141,10 +150,6 @@ public sealed partial class ImagesViewModel : ObservableObject
         InspectionError = null;
         try
         {
-            // Unlike LoadAsync/PullAsync/DeleteAsync, ImageService.InspectAsync passes the
-            // backend call straight through without a try/catch of its own (it never routes
-            // through AlertCenter) - so this is the one place in this ViewModel that must
-            // catch failures itself.
             Inspection = await _services.ImageService.InspectAsync(row.Reference);
         }
         catch (Exception ex)
@@ -162,13 +167,55 @@ public sealed partial class ImagesViewModel : ObservableObject
     {
         var row = SelectedRow;
         SelectedImageInUse = row is not null && _services.ContainerListService.Containers
-            .Any(c => c.Configuration.Image.Reference == row.Reference);
+            .Any(c => string.Equals(c.Configuration.Image.Reference, row.Reference, StringComparison.OrdinalIgnoreCase)
+                      || ReferencesMatch(c.Configuration.Image.Reference, row.Reference));
+    }
+
+    private void RebuildContainersUsingSelected()
+    {
+        ContainersUsingSelected.Clear();
+        var row = SelectedRow;
+        if (row is null) return;
+
+        foreach (var c in _services.ContainerListService.Containers)
+        {
+            if (!ReferencesMatch(c.Configuration.Image.Reference, row.Reference)
+                && !string.Equals(c.Configuration.Image.Reference, row.Reference, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var name = !string.IsNullOrWhiteSpace(c.Configuration.Hostname)
+                ? c.Configuration.Hostname!
+                : (c.Configuration.Id.Length > 12 ? c.Configuration.Id[..12] : c.Configuration.Id);
+            var address = c.Networks.Count > 0
+                ? c.Networks[0].Address.StrippingCidrSuffix()
+                : "N/A";
+            var hostname = c.Networks.Count > 0
+                ? (c.Networks[0].Hostname.EndsWith('.')
+                    ? c.Networks[0].Hostname[..^1]
+                    : c.Networks[0].Hostname)
+                : "N/A";
+            if (string.IsNullOrEmpty(hostname)) hostname = "N/A";
+            if (string.IsNullOrEmpty(address)) address = "N/A";
+
+            ContainersUsingSelected.Add(new ImageUserRow(
+                c.Configuration.Id,
+                name,
+                address,
+                string.IsNullOrEmpty(hostname) ? "N/A" : hostname,
+                string.Equals(c.Status, "running", StringComparison.OrdinalIgnoreCase)));
+        }
     }
 
     private void Refresh()
     {
         var containers = _services.ContainerListService.Containers;
         IEnumerable<ContainerImage> filtered = _services.ImageService.Images;
+
+        if (ShowOnlyInUse)
+        {
+            filtered = filtered.Where(image =>
+                containers.Any(c => ReferencesMatch(c.Configuration.Image.Reference, image.Reference)));
+        }
 
         if (!string.IsNullOrEmpty(SearchText))
         {
@@ -179,9 +226,13 @@ public sealed partial class ImagesViewModel : ObservableObject
         {
             var (name, tag) = ParseReference(image.Reference);
             var inUseByRunning = containers.Any(c =>
-                c.Configuration.Image.Reference == image.Reference &&
+                ReferencesMatch(c.Configuration.Image.Reference, image.Reference) &&
                 string.Equals(c.Status, "running", StringComparison.OrdinalIgnoreCase));
-            return new ImageRow(image, name, tag, ByteFormat.String(image.Descriptor.Size), inUseByRunning, image.Reference);
+            return new ImageRow(
+                image, name, tag,
+                ByteFormat.String(image.Descriptor.Size),
+                inUseByRunning,
+                image.Reference);
         }).ToList();
 
         rows = SortBy switch
@@ -199,25 +250,70 @@ public sealed partial class ImagesViewModel : ObservableObject
         };
 
         var previousSelectedReference = SelectedRow?.Reference;
-        Rows = new ObservableCollection<ImageRow>(rows);
+        var changed = ObservableCollectionSync.Sync(Rows, rows, RowEquals);
+        if (changed) OnPropertyChanged(nameof(Rows));
 
-        // Re-point selection at the refreshed row with the same reference (if it still
-        // exists) so the detail pane survives a background image-list poll instead of being
-        // silently cleared out from under the user.
         if (previousSelectedReference is not null)
         {
-            SelectedRow = Rows.FirstOrDefault(r => r.Reference == previousSelectedReference);
+            var match = Rows.FirstOrDefault(r => r.Reference == previousSelectedReference);
+            if (!ReferenceEquals(SelectedRow, match))
+            {
+                // Silent when only the row instance was replaced with same reference.
+                if (match is not null
+                    && SelectedRow is not null
+                    && SelectedRow.Reference == match.Reference
+                    && SelectedRow.IsInUseByRunning == match.IsInUseByRunning
+                    && SelectedRow.SizeText == match.SizeText)
+                {
+#pragma warning disable MVVMTK0034
+                    _selectedRow = match;
+#pragma warning restore MVVMTK0034
+                }
+                else
+                {
+                    SelectedRow = match;
+                }
+            }
         }
 
         UpdateSelectedImageInUse();
+        RebuildContainersUsingSelected();
+        OnPropertyChanged(nameof(IsImagesLoading));
     }
 
-    /// Mirrors ListImages.swift's `imageName(from:)`/`imageTag(from:)`: the name is the last
-    /// path segment minus any `:tag` suffix; the tag is whatever follows the last `:` in that
-    /// same last segment, defaulting to "latest" when there isn't one.
+    private static bool RowEquals(ImageRow a, ImageRow b) =>
+        string.Equals(a.Reference, b.Reference, StringComparison.Ordinal)
+        && string.Equals(a.Name, b.Name, StringComparison.Ordinal)
+        && string.Equals(a.Tag, b.Tag, StringComparison.Ordinal)
+        && string.Equals(a.SizeText, b.SizeText, StringComparison.Ordinal)
+        && a.IsInUseByRunning == b.IsInUseByRunning;
+
+    /// Loose match: alpine:latest vs docker.io/library/alpine:latest, or digest prefixes.
+    private static bool ReferencesMatch(string a, string b)
+    {
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+        var na = NormalizeRef(a);
+        var nb = NormalizeRef(b);
+        return string.Equals(na, nb, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeRef(string reference)
+    {
+        var r = reference
+            .Replace("docker.io/library/", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("docker.io/", "", StringComparison.OrdinalIgnoreCase);
+        return r;
+    }
+
+    /// Mirrors ListImages.swift's imageName/imageTag helpers.
     private static (string Name, string Tag) ParseReference(string reference)
     {
         var lastSegment = reference.Contains('/') ? reference[(reference.LastIndexOf('/') + 1)..] : reference;
+        // digest-style name@sha256:...
+        var at = lastSegment.IndexOf('@');
+        if (at >= 0)
+            return (lastSegment[..at], lastSegment[(at + 1)..]);
+
         var colonIndex = lastSegment.LastIndexOf(':');
         return colonIndex >= 0
             ? (lastSegment[..colonIndex], lastSegment[(colonIndex + 1)..])

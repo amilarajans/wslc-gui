@@ -20,6 +20,15 @@ public sealed partial class ContainersPage : Page
     private DispatcherTimer? _pollTimer;
     private string? _pendingSelectId;
     private bool _isRestoringSelection;
+    private bool _listBound;
+    private string? _detailContainerId;
+
+    // Retained metric cards so stats ticks update series in place (no Children.Clear flicker).
+    private MetricChart? _cpuChart, _memChart, _netChart, _diskChart;
+    private TextBlock? _cpuPrimary, _cpuSecondary, _memPrimary, _memSecondary;
+    private ProgressBar? _cpuBar, _memBar;
+    private TextBlock? _netRxText, _netTxText, _diskRText, _diskWText;
+    private bool _metricsStructureBuilt;
 
     private static readonly Color CpuColor = Color.FromArgb(255, 64, 156, 255);
     private static readonly Color MemColor = Color.FromArgb(255, 176, 100, 255);
@@ -38,13 +47,25 @@ public sealed partial class ContainersPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        var args = NavigationArgs.From(e.Parameter);
-        _pendingSelectId = args.SelectContainerId;
-        _viewModel = new ContainersViewModel(args.Services);
-        _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
-        ApplyViewModelState();
-        HighlightWindow(_viewModel.SelectedStatsWindow);
-        _ = LoadAndMaybeSelectAsync();
+        Log.Ui.Info("ContainersPage.OnNavigatedTo");
+        try
+        {
+            var args = NavigationArgs.From(e.Parameter);
+            _pendingSelectId = args.SelectContainerId;
+            _viewModel = new ContainersViewModel(args.Services);
+            // Bind list once — later polls mutate the same ObservableCollection (no ItemsSource thrash).
+            ContainersListView.ItemsSource = _viewModel.ContainerRows;
+            _listBound = true;
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            SafeApplyViewModelState();
+            HighlightWindow(_viewModel.SelectedStatsWindow);
+            _ = LoadAndMaybeSelectAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("ContainersPage.OnNavigatedTo", ex);
+            throw;
+        }
     }
 
     public void SelectContainer(string containerId)
@@ -56,13 +77,29 @@ public sealed partial class ContainersPage : Page
     private async Task LoadAndMaybeSelectAsync()
     {
         if (_viewModel is null) return;
-        await _viewModel.LoadAsync();
-        // Always re-enter UI thread after await — XAML updates must not run on the thread pool.
-        DispatcherQueue.TryEnqueue(() =>
+        try
         {
-            TryApplyPendingSelection();
-            ApplyViewModelState();
-        });
+            Log.Ui.Info("ContainersPage.LoadAndMaybeSelectAsync start");
+            await _viewModel.LoadAsync();
+            Log.Ui.Info($"ContainersPage loaded rows={_viewModel.ContainerRows.Count}");
+            // Always re-enter UI thread after await — XAML updates must not run on the thread pool.
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    TryApplyPendingSelection();
+                    SafeApplyViewModelState();
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteCrashReport("ContainersPage.LoadAndMaybeSelectAsync.UI", ex);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("ContainersPage.LoadAndMaybeSelectAsync", ex);
+        }
     }
 
     private void TryApplyPendingSelection()
@@ -100,6 +137,56 @@ public sealed partial class ContainersPage : Page
         _pollTimer = null;
     }
 
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // Route changes: stats → metrics only; list/selection → full chrome. Never rebuild
+        // everything on every PropertyChanged (that was the flicker).
+        DispatcherQueue.RunOnUi(() =>
+        {
+            try
+            {
+                if (_viewModel is null) return;
+
+                if (e.PropertyName is nameof(ContainersViewModel.StatsRevision))
+                {
+                    UpdateMetricsOnly();
+                    return;
+                }
+
+                if (e.PropertyName is nameof(ContainersViewModel.IsSelectedBusy))
+                {
+                    UpdateActionButtons();
+                    return;
+                }
+
+                if (e.PropertyName is nameof(ContainersViewModel.AlertMessage))
+                {
+                    ApplyAlert();
+                    return;
+                }
+
+                // ContainerRows, SelectedContainer, or wholesale reset.
+                SafeApplyViewModelState();
+            }
+            catch (Exception ex)
+            {
+                Log.WriteCrashReport("ContainersPage.OnViewModelPropertyChanged", ex);
+            }
+        });
+    }
+
+    private void SafeApplyViewModelState()
+    {
+        try
+        {
+            ApplyViewModelState();
+        }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("ContainersPage.ApplyViewModelState", ex);
+        }
+    }
+
     private void ApplyViewModelState()
     {
         if (_viewModel is null) return;
@@ -107,13 +194,29 @@ public sealed partial class ContainersPage : Page
         _isRestoringSelection = true;
         try
         {
-            ContainersListView.ItemsSource = _viewModel.ContainerRows;
-            ContainersListView.SelectedItems.Clear();
-            foreach (var row in _viewModel.ContainerRows)
+            // Keep a single ItemsSource reference (set in OnNavigatedTo). Reassign only if lost.
+            if (!_listBound || !ReferenceEquals(ContainersListView.ItemsSource, _viewModel.ContainerRows))
             {
-                if (_viewModel.SelectedIds.Contains(row.Id))
-                    ContainersListView.SelectedItems.Add(row);
+                ContainersListView.ItemsSource = _viewModel.ContainerRows;
+                _listBound = true;
             }
+
+            ContainerRowVm? selectedRow = null;
+            if (_viewModel.SelectedContainer is { } sel)
+            {
+                selectedRow = _viewModel.ContainerRows.FirstOrDefault(r =>
+                    string.Equals(r.Id, sel.Configuration.Id, StringComparison.OrdinalIgnoreCase));
+            }
+            else if (_viewModel.SelectedIds.Count > 0)
+            {
+                var id = _viewModel.SelectedIds.First();
+                selectedRow = _viewModel.ContainerRows.FirstOrDefault(r =>
+                    string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Avoid selection churn that re-fires SelectionChanged / detail rebuild.
+            if (!ReferenceEquals(ContainersListView.SelectedItem, selectedRow))
+                ContainersListView.SelectedItem = selectedRow;
         }
         finally
         {
@@ -123,12 +226,17 @@ public sealed partial class ContainersPage : Page
         if (!string.IsNullOrEmpty(_pendingSelectId) && _viewModel.ContainerRows.Count > 0)
             TryApplyPendingSelection();
 
+        ApplyAlert();
+        UpdateDetailPane();
+    }
+
+    private void ApplyAlert()
+    {
+        if (_viewModel is null) return;
         var alert = _viewModel.AlertMessage;
         AlertBar.IsOpen = !string.IsNullOrEmpty(alert);
         AlertBar.Message = alert ?? "";
         AlertBar.Title = string.IsNullOrEmpty(alert) ? "" : "Error";
-
-        UpdateDetailPane();
     }
 
     private void OnAlertBarClose(InfoBar sender, object args)
@@ -160,12 +268,15 @@ public sealed partial class ContainersPage : Page
         if (_viewModel is null || _isRestoringSelection) return;
 
         _viewModel.SelectedIds.Clear();
-        foreach (var row in ContainersListView.SelectedItems.OfType<ContainerRowVm>())
-            _viewModel.SelectedIds.Add(row.Id);
-
-        var last = e.AddedItems.OfType<ContainerRowVm>().LastOrDefault()
-                   ?? ContainersListView.SelectedItems.OfType<ContainerRowVm>().LastOrDefault();
-        _viewModel.SelectedContainer = last?.Container;
+        if (ContainersListView.SelectedItem is ContainerRowVm selected)
+        {
+            _viewModel.SelectedIds.Add(selected.Id);
+            _viewModel.SelectedContainer = selected.Container;
+        }
+        else
+        {
+            _viewModel.SelectedContainer = null;
+        }
     }
 
     private void OnContextMenuOpening(object sender, object e)
@@ -173,7 +284,9 @@ public sealed partial class ContainersPage : Page
         RowContextMenu.Items.Clear();
         if (_viewModel is null) return;
 
-        var rows = ContainersListView.SelectedItems.OfType<ContainerRowVm>().ToList();
+        var rows = new List<ContainerRowVm>();
+        if (ContainersListView.SelectedItem is ContainerRowVm one)
+            rows.Add(one);
         if (rows.Count == 0) return;
 
         var ids = rows.Select(r => r.Id).ToList();
@@ -239,7 +352,12 @@ public sealed partial class ContainersPage : Page
     private void OnLogsClick(object sender, RoutedEventArgs e)
     {
         if (_viewModel?.SelectedContainer is null) return;
-        App.MainWindow.NavigateTo("logs");
+        // Prefer name for the log CLI; fall back to id.
+        var c = _viewModel.SelectedContainer;
+        var key = !string.IsNullOrWhiteSpace(c.Configuration.Hostname)
+            ? c.Configuration.Hostname!
+            : c.Configuration.Id;
+        App.MainWindow.NavigateTo("logs", selectContainerId: key);
     }
 
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
@@ -256,14 +374,15 @@ public sealed partial class ContainersPage : Page
         if (!Enum.TryParse<StatsWindow>(tag, out var window)) return;
         _viewModel.SelectedStatsWindow = window;
         HighlightWindow(window);
-        UpdateDetailPane();
+        // Window change only affects chart series — not list/config cards.
+        UpdateMetricsOnly();
     }
 
     private void HighlightWindow(StatsWindow window)
     {
         void Style(Button b, bool on) =>
             b.Background = on
-                ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
+                ? ThemeBrush("AccentFillColorDefaultBrush", new SolidColorBrush(CpuColor))
                 : new SolidColorBrush(Colors.Transparent);
 
         Style(Win5m, window == StatsWindow.FiveMin);
@@ -274,25 +393,68 @@ public sealed partial class ContainersPage : Page
 
     private void UpdateDetailPane()
     {
-        var container = _viewModel?.SelectedContainer;
-        if (_viewModel is null || container is null)
+        try
         {
-            EmptyState.Visibility = Visibility.Visible;
-            DetailRoot.Visibility = Visibility.Collapsed;
-            return;
+            var container = _viewModel?.SelectedContainer;
+            if (_viewModel is null || container is null)
+            {
+                EmptyState.Visibility = Visibility.Visible;
+                DetailRoot.Visibility = Visibility.Collapsed;
+                _detailContainerId = null;
+                MetricsHost.Children.Clear();
+                _metricsStructureBuilt = false;
+                return;
+            }
+
+            EmptyState.Visibility = Visibility.Collapsed;
+            DetailRoot.Visibility = Visibility.Visible;
+
+            var running = ContainersViewModel.IsRunning(container);
+            var displayName = !string.IsNullOrWhiteSpace(container.Configuration.Hostname)
+                ? container.Configuration.Hostname!
+                : container.Configuration.Id;
+
+            DetailNameText.Text = displayName;
+            DetailImageText.Text = container.Configuration.Image.Reference;
+            UpdateActionButtons();
+
+            var selectionChanged = !string.Equals(_detailContainerId, container.Configuration.Id, StringComparison.Ordinal);
+            if (selectionChanged)
+            {
+                _detailContainerId = container.Configuration.Id;
+                _metricsStructureBuilt = false;
+                MetricsHost.Children.Clear();
+                BuildConfigCards(container);
+            }
+
+            // Metrics: build once per selection, then SetSeries/text only on ticks.
+            UpdateOrBuildMetricCards(container, running);
         }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("ContainersPage.UpdateDetailPane", ex);
+        }
+    }
 
-        EmptyState.Visibility = Visibility.Collapsed;
-        DetailRoot.Visibility = Visibility.Visible;
+    /// Live stats tick: update chart series + labels only (no list/config rebuild).
+    private void UpdateMetricsOnly()
+    {
+        try
+        {
+            if (_viewModel?.SelectedContainer is not { } container) return;
+            if (DetailRoot.Visibility != Visibility.Visible) return;
+            UpdateOrBuildMetricCards(container, ContainersViewModel.IsRunning(container));
+        }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("ContainersPage.UpdateMetricsOnly", ex);
+        }
+    }
 
+    private void UpdateActionButtons()
+    {
+        if (_viewModel?.SelectedContainer is not { } container) return;
         var running = ContainersViewModel.IsRunning(container);
-        var displayName = !string.IsNullOrWhiteSpace(container.Configuration.Hostname)
-            ? container.Configuration.Hostname!
-            : container.Configuration.Id;
-
-        DetailNameText.Text = displayName;
-        DetailImageText.Text = container.Configuration.Image.Reference;
-
         var busy = _viewModel.IsSelectedBusy;
         StartButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
@@ -302,81 +464,57 @@ public sealed partial class ContainersPage : Page
         TerminalBashButton.IsEnabled = running && !busy;
         LogsButton.IsEnabled = true;
         RemoveButton.IsEnabled = !busy;
-
-        BuildMetricCards(container, running);
-        BuildConfigCards(container);
     }
 
-    private void BuildMetricCards(Container container, bool running)
+    private void UpdateOrBuildMetricCards(Container container, bool running)
+    {
+        if (_viewModel is null) return;
+
+        if (!_metricsStructureBuilt || MetricsHost.Children.Count == 0)
+        {
+            BuildMetricCardsStructure(container);
+            _metricsStructureBuilt = true;
+        }
+
+        ApplyMetricData(running);
+    }
+
+    private void BuildMetricCardsStructure(Container container)
     {
         MetricsHost.Children.Clear();
         if (_viewModel is null) return;
 
-        var cores = _viewModel.SelectedCoresAllocated;
-        var cpuHist = _viewModel.SelectedCpuHistory;
-        var memHist = _viewModel.SelectedMemoryHistory;
-        var netRxHist = _viewModel.SelectedNetworkRxHistory;
-        var netTxHist = _viewModel.SelectedNetworkTxHistory;
-        var diskRHist = _viewModel.SelectedDiskReadHistory;
-        var diskWHist = _viewModel.SelectedDiskWriteHistory;
-        var memLimit = _viewModel.SelectedMemoryLimitBytes;
-
         // CPU
-        MetricsHost.Children.Add(MetricCard(
-            "CPU",
-            _viewModel.SelectedCpuPercentText,
-            cores > 0 ? $"{cores} {(cores == 1 ? "core" : "cores")} allocated" : "",
-            cpuBar: running ? Math.Clamp(_viewModel.SelectedSample?.CpuPercent ?? 0, 0, 100) : null,
-            barColor: CpuColor,
-            series:
-            [
-                new ChartSeries { Values = cpuHist, Stroke = CpuColor, Thickness = 1.8 },
-            ],
-            fixedMax: 100));
-
+        (_cpuChart, _cpuPrimary, _cpuSecondary, _cpuBar) = AddSimpleMetricCard("CPU", CpuColor, showBar: true);
         // MEMORY
-        MetricsHost.Children.Add(MetricCard(
-            "MEMORY",
-            _viewModel.SelectedMemoryText,
-            _viewModel.SelectedMemorySecondaryText,
-            cpuBar: running && memLimit > 0
-                ? Math.Clamp((_viewModel.SelectedRawStats?.MemoryUsagePercent
-                    ?? _viewModel.SelectedSample?.MemoryPercent ?? 0), 0, 100)
-                : null,
-            barColor: MemColor,
-            series:
-            [
-                new ChartSeries { Values = memHist, Stroke = MemColor, Thickness = 1.6, Fill = true },
-            ],
-            guideValue: memLimit > 0 ? memLimit : null));
+        (_memChart, _memPrimary, _memSecondary, _memBar) = AddSimpleMetricCard("MEMORY", MemColor, showBar: true);
 
-        // NETWORK
+        // NETWORK — left column holds live legend texts
+        _netRxText = new TextBlock { FontSize = 13, FontFamily = new FontFamily("Cascadia Mono,Consolas"), Foreground = new SolidColorBrush(NetRxColor) };
+        _netTxText = new TextBlock { FontSize = 13, FontFamily = new FontFamily("Cascadia Mono,Consolas"), Foreground = new SolidColorBrush(NetTxColor) };
         var netLeft = new StackPanel { Spacing = 8 };
-        netLeft.Children.Add(PairLegend(_viewModel.SelectedNetworkRxText, NetRxColor, _viewModel.SelectedNetworkTxText, NetTxColor));
-        var hostname = ContainersViewModel.Hostname(container)
-            ?? container.Configuration.Hostname
-            ?? "";
+        var netLegend = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
+        netLegend.Children.Add(_netRxText);
+        netLegend.Children.Add(_netTxText);
+        netLeft.Children.Add(netLegend);
+        var hostname = ContainersViewModel.Hostname(container) ?? container.Configuration.Hostname ?? "";
         var address = ContainersViewModel.NetworkAddress(container) ?? "";
         if (!string.IsNullOrEmpty(hostname) || !string.IsNullOrEmpty(address))
         {
             netLeft.Children.Add(Muted("Info"));
-            if (!string.IsNullOrEmpty(hostname))
-                netLeft.Children.Add(CopyableRow("Hostname", hostname));
-            if (!string.IsNullOrEmpty(address))
-                netLeft.Children.Add(CopyableRow("Address", address));
+            if (!string.IsNullOrEmpty(hostname)) netLeft.Children.Add(CopyableRow("Hostname", hostname));
+            if (!string.IsNullOrEmpty(address)) netLeft.Children.Add(CopyableRow("Address", address));
         }
-
-        MetricsHost.Children.Add(MetricCardCustom(
-            "NETWORK",
-            netLeft,
-            [
-                new ChartSeries { Values = netRxHist, Stroke = NetRxColor, Thickness = 1.5 },
-                new ChartSeries { Values = netTxHist, Stroke = NetTxColor, Thickness = 1.5 },
-            ]));
+        _netChart = AddCustomMetricCard("NETWORK", netLeft);
 
         // DISK
+        _diskRText = new TextBlock { FontSize = 13, FontFamily = new FontFamily("Cascadia Mono,Consolas"), Foreground = new SolidColorBrush(DiskRColor) };
+        _diskWText = new TextBlock { FontSize = 13, FontFamily = new FontFamily("Cascadia Mono,Consolas"), Foreground = new SolidColorBrush(DiskWColor) };
         var diskLeft = new StackPanel { Spacing = 8 };
-        diskLeft.Children.Add(PairLegend(_viewModel.SelectedDiskReadText, DiskRColor, _viewModel.SelectedDiskWriteText, DiskWColor));
+        var diskLegend = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
+        diskLegend.Children.Add(_diskRText);
+        diskLegend.Children.Add(_diskWText);
+        diskLeft.Children.Add(diskLegend);
         if (container.Configuration.Mounts.Count > 0)
         {
             diskLeft.Children.Add(Muted("Mounts"));
@@ -391,14 +529,124 @@ public sealed partial class ContainersPage : Page
                 });
             }
         }
+        _diskChart = AddCustomMetricCard("DISK", diskLeft);
+    }
 
-        MetricsHost.Children.Add(MetricCardCustom(
-            "DISK",
-            diskLeft,
-            [
-                new ChartSeries { Values = diskRHist, Stroke = DiskRColor, Thickness = 1.5 },
-                new ChartSeries { Values = diskWHist, Stroke = DiskWColor, Thickness = 1.5 },
-            ]));
+    private void ApplyMetricData(bool running)
+    {
+        if (_viewModel is null) return;
+
+        var cores = _viewModel.SelectedCoresAllocated;
+        var memLimit = _viewModel.SelectedMemoryLimitBytes;
+
+        if (_cpuPrimary is not null) _cpuPrimary.Text = _viewModel.SelectedCpuPercentText;
+        if (_cpuSecondary is not null)
+            _cpuSecondary.Text = cores > 0 ? $"{cores} {(cores == 1 ? "core" : "cores")} allocated" : "";
+        if (_cpuBar is not null)
+        {
+            _cpuBar.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            if (running) _cpuBar.Value = Math.Clamp(_viewModel.SelectedSample?.CpuPercent ?? 0, 0, 100);
+        }
+        // Match Memory style: smooth stroke + soft area fill under the curve.
+        _cpuChart?.SetSeries(
+        [
+            new ChartSeries { Values = _viewModel.SelectedCpuHistory, Stroke = CpuColor, Thickness = 1.6, Fill = true },
+        ], fixedMax: 100);
+
+        if (_memPrimary is not null) _memPrimary.Text = _viewModel.SelectedMemoryText;
+        if (_memSecondary is not null) _memSecondary.Text = _viewModel.SelectedMemorySecondaryText;
+        if (_memBar is not null)
+        {
+            var show = running && memLimit > 0;
+            _memBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show)
+            {
+                _memBar.Value = Math.Clamp(
+                    _viewModel.SelectedRawStats?.MemoryUsagePercent
+                    ?? _viewModel.SelectedSample?.MemoryPercent ?? 0, 0, 100);
+            }
+        }
+        _memChart?.SetSeries(
+        [
+            new ChartSeries { Values = _viewModel.SelectedMemoryHistory, Stroke = MemColor, Thickness = 1.6, Fill = true },
+        ], guideValue: memLimit > 0 ? memLimit : null);
+
+        if (_netRxText is not null) _netRxText.Text = _viewModel.SelectedNetworkRxText;
+        if (_netTxText is not null) _netTxText.Text = _viewModel.SelectedNetworkTxText;
+        // Uploads (tx) above center, downloads (rx) below.
+        _netChart?.SetSeries(
+        [
+            new ChartSeries { Values = _viewModel.SelectedNetworkTxHistory, Stroke = NetTxColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = _viewModel.SelectedNetworkRxHistory, Stroke = NetRxColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+        ], mirrored: true);
+
+        if (_diskRText is not null) _diskRText.Text = _viewModel.SelectedDiskReadText;
+        if (_diskWText is not null) _diskWText.Text = _viewModel.SelectedDiskWriteText;
+        // Read above, write below.
+        _diskChart?.SetSeries(
+        [
+            new ChartSeries { Values = _viewModel.SelectedDiskReadHistory, Stroke = DiskRColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = _viewModel.SelectedDiskWriteHistory, Stroke = DiskWColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+        ], mirrored: true);
+    }
+
+    private (MetricChart Chart, TextBlock Primary, TextBlock Secondary, ProgressBar? Bar) AddSimpleMetricCard(
+        string title, Color barColor, bool showBar)
+    {
+        var primary = new TextBlock
+        {
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontFamily = new FontFamily("Cascadia Mono,Consolas"),
+        };
+        var secondary = new TextBlock { FontSize = 12, Opacity = 0.55, FontFamily = new FontFamily("Cascadia Mono,Consolas") };
+        ProgressBar? bar = showBar
+            ? new ProgressBar { Maximum = 100, Height = 4, Foreground = new SolidColorBrush(barColor) }
+            : null;
+
+        var left = new StackPanel { Spacing = 6, Width = 160 };
+        left.Children.Add(primary);
+        left.Children.Add(secondary);
+        if (bar is not null) left.Children.Add(bar);
+
+        var chart = AddCustomMetricCard(title, left);
+        return (chart, primary, secondary, bar);
+    }
+
+    private MetricChart AddCustomMetricCard(string title, UIElement leftContent)
+    {
+        var chart = new MetricChart { Height = 110, MinWidth = 200 };
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var leftCol = new StackPanel { Spacing = 8 };
+        leftCol.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            CharacterSpacing = 40,
+            Opacity = 0.85,
+        });
+        leftCol.Children.Add(leftContent);
+        Grid.SetColumn(leftCol, 0);
+        Grid.SetColumn(chart, 1);
+        grid.Children.Add(leftCol);
+        grid.Children.Add(chart);
+
+        MetricsHost.Children.Add(new Border
+        {
+            Background = ThemeBrush("CardBackgroundFillColorDefaultBrush",
+                new SolidColorBrush(Color.FromArgb(20, 128, 128, 128))),
+            BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush",
+                new SolidColorBrush(Color.FromArgb(40, 128, 128, 128))),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14),
+            Child = grid,
+        });
+        return chart;
     }
 
     private void BuildConfigCards(Container container)
@@ -523,98 +771,18 @@ public sealed partial class ContainersPage : Page
 
     // MARK: - Card builders
 
-    private Border MetricCard(
-        string title,
-        string primary,
-        string secondary,
-        double? cpuBar,
-        Color barColor,
-        IReadOnlyList<ChartSeries> series,
-        double? fixedMax = null,
-        double? guideValue = null)
+    private static Brush ThemeBrush(string key, Brush fallback)
     {
-        var left = new StackPanel { Spacing = 6, Width = 160 };
-        left.Children.Add(new TextBlock
+        try
         {
-            Text = primary,
-            FontSize = 20,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            FontFamily = new FontFamily("Cascadia Mono,Consolas"),
-        });
-        if (!string.IsNullOrEmpty(secondary))
-            left.Children.Add(Muted(secondary));
-        if (cpuBar is { } bar)
-        {
-            left.Children.Add(new ProgressBar
-            {
-                Maximum = 100,
-                Value = bar,
-                Height = 4,
-                Foreground = new SolidColorBrush(barColor),
-            });
+            if (Application.Current?.Resources.TryGetValue(key, out var value) == true && value is Brush brush)
+                return brush;
         }
-
-        return MetricCardCustom(title, left, series, fixedMax, guideValue);
-    }
-
-    private Border MetricCardCustom(
-        string title,
-        UIElement leftContent,
-        IReadOnlyList<ChartSeries> series,
-        double? fixedMax = null,
-        double? guideValue = null)
-    {
-        var chart = new MetricChart { Height = 110, MinWidth = 200 };
-        chart.SetSeries(series, fixedMax, guideValue);
-
-        var grid = new Grid { ColumnSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var leftCol = new StackPanel { Spacing = 8 };
-        leftCol.Children.Add(new TextBlock
+        catch (Exception ex)
         {
-            Text = title,
-            FontSize = 12,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            CharacterSpacing = 40,
-            Opacity = 0.85,
-        });
-        leftCol.Children.Add(leftContent);
-        Grid.SetColumn(leftCol, 0);
-        Grid.SetColumn(chart, 1);
-        grid.Children.Add(leftCol);
-        grid.Children.Add(chart);
-
-        return new Border
-        {
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
-            BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(14),
-            Child = grid,
-        };
-    }
-
-    private static StackPanel PairLegend(string a, Color ca, string b, Color cb)
-    {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
-        row.Children.Add(new TextBlock
-        {
-            Text = a,
-            FontSize = 13,
-            FontFamily = new FontFamily("Cascadia Mono,Consolas"),
-            Foreground = new SolidColorBrush(ca),
-        });
-        row.Children.Add(new TextBlock
-        {
-            Text = b,
-            FontSize = 13,
-            FontFamily = new FontFamily("Cascadia Mono,Consolas"),
-            Foreground = new SolidColorBrush(cb),
-        });
-        return row;
+            Log.Ui.Error($"ThemeBrush missing/failed for {key}: {ex.Message}");
+        }
+        return fallback;
     }
 
     private static TextBlock CardTitle(string title) => new()

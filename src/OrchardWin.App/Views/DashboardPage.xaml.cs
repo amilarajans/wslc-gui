@@ -42,22 +42,23 @@ public sealed partial class DashboardPage : Page
 
         _viewModel.PropertyChanged += (_, e2) =>
         {
+            // MetricsRevision → charts only (once per sample). Disk/chrome → tiles + empty state.
+            // Do NOT subscribe to every nested SystemMetrics property — that redraws charts ~15× per tick.
+            if (e2.PropertyName is nameof(DashboardViewModel.MetricsRevision)
+                or nameof(DashboardViewModel.SelectedWindow))
+            {
+                DispatcherQueue.RunOnUi(ApplySystemCharts);
+                return;
+            }
+
             if (e2.PropertyName is null
                 or nameof(DashboardViewModel.DiskUsage)
                 or nameof(DashboardViewModel.StatsUnavailable)
-                or nameof(DashboardViewModel.MachineRows)
-                or nameof(DashboardViewModel.SystemMetrics)
-                or nameof(DashboardViewModel.SelectedWindow)
-                or nameof(DashboardViewModel.EmptyContainersMessage)
-                or nameof(DashboardViewModel.ContainerRows))
+                or nameof(DashboardViewModel.EmptyContainersMessage))
             {
                 DispatcherQueue.RunOnUi(ApplyChromeState);
             }
         };
-
-        // SystemMetrics nested property changes also need a redraw.
-        _viewModel.SystemMetrics.PropertyChanged += (_, _) =>
-            DispatcherQueue.RunOnUi(ApplySystemCharts);
 
         ApplyChromeState();
         HighlightWindowButton(StatsWindow.FiveMin);
@@ -167,9 +168,10 @@ public sealed partial class DashboardPage : Page
 
         if (!m.HasData) return;
 
+        // Match Memory style: smooth stroke + soft area fill under the curve.
         CpuChart.SetSeries(
         [
-            new ChartSeries { Values = m.CpuSeries, Stroke = CpuColor, Thickness = 1.8 },
+            new ChartSeries { Values = m.CpuSeries, Stroke = CpuColor, Thickness = 1.6, Fill = true },
         ]);
 
         MemChart.SetSeries(
@@ -177,16 +179,19 @@ public sealed partial class DashboardPage : Page
             new ChartSeries { Values = m.MemorySeries, Stroke = MemColor, Thickness = 1.6, Fill = true },
         ], guideValue: m.MemoryLimitBytes > 0 ? m.MemoryLimitBytes : null);
 
+        // Mirrored I/O: uploads (tx) above center, downloads (rx) below — Orchard networkChart style
+        // (user preference: out on top, in underneath the zero line).
         NetChart.SetSeries(
         [
-            new ChartSeries { Values = m.NetworkRxSeries, Stroke = NetRxColor, Thickness = 1.5 },
-            new ChartSeries { Values = m.NetworkTxSeries, Stroke = NetTxColor, Thickness = 1.5 },
-        ]);
+            new ChartSeries { Values = m.NetworkTxSeries, Stroke = NetTxColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = m.NetworkRxSeries, Stroke = NetRxColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+        ], mirrored: true);
 
+        // Disk same mirrored split: read above, write below.
         DiskChart.SetSeries(
         [
-            new ChartSeries { Values = m.DiskReadSeries, Stroke = DiskRColor, Thickness = 1.5 },
-            new ChartSeries { Values = m.DiskWriteSeries, Stroke = DiskWColor, Thickness = 1.5 },
-        ]);
+            new ChartSeries { Values = m.DiskReadSeries, Stroke = DiskRColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = m.DiskWriteSeries, Stroke = DiskWColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+        ], mirrored: true);
     }
 }

@@ -33,7 +33,7 @@ Compared to upstream [Orchard](https://github.com/andrew-waters/orchard) sidebar
 | Dashboard | Yes | Disk tiles from image/volume/container lists (`wslc` has no `system df`) |
 | Containers | Yes | List/lifecycle/run; full “edit container” flow is thinner than Orchard |
 | Images + Hub search | Yes | Verified against real `wslc image ls/inspect` JSON |
-| Mounts (dedicated tab) | Partial | Mounts derived in Core; no standalone Mounts page yet |
+| Mounts (dedicated tab) | Yes | List + detail from container inspect mounts; in-use filter |
 | Machines | Yes | Backed by `wsl.exe` + best-effort `wslc` |
 | AI Models | Yes | Combined with sandboxes |
 | Sandboxes | Yes | Same “Local AI & Sandboxes” page |

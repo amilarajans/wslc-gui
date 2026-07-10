@@ -32,7 +32,20 @@ public sealed partial class ModelsPage : Page
         base.OnNavigatedTo(e);
         _services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new ModelsViewModel(_services);
-        _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
+        ServersList.ItemsSource = _viewModel.ServerRows;
+        ProvidersList.ItemsSource = _viewModel.DetectedRows;
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null
+                or nameof(ModelsViewModel.ServerRows)
+                or nameof(ModelsViewModel.DetectedRows)
+                or nameof(ModelsViewModel.SelectedId)
+                or nameof(ModelsViewModel.SelectedServer)
+                or nameof(ModelsViewModel.SelectedProvider)
+                or nameof(ModelsViewModel.EngineAvailable)
+                or nameof(ModelsViewModel.DefaultGateway))
+                DispatcherQueue.RunOnUi(ApplyViewModelState);
+        };
         ApplyViewModelState();
 
         _ = _viewModel.LoadAsync();
@@ -174,8 +187,27 @@ public sealed partial class ModelsPage : Page
 
         ManagedSection.Visibility = _viewModel.ServerRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         DetectedSection.Visibility = _viewModel.DetectedRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        ServersList.ItemsSource = _viewModel.ServerRows;
-        ProvidersList.ItemsSource = _viewModel.DetectedRows;
+        if (!ReferenceEquals(ServersList.ItemsSource, _viewModel.ServerRows))
+            ServersList.ItemsSource = _viewModel.ServerRows;
+        if (!ReferenceEquals(ProvidersList.ItemsSource, _viewModel.DetectedRows))
+            ProvidersList.ItemsSource = _viewModel.DetectedRows;
+
+        // Keep list selection in sync with VM auto-select.
+        if (_viewModel.SelectedId is { } sid)
+        {
+            var serverRow = _viewModel.ServerRows.FirstOrDefault(r => r.Id == sid);
+            var providerRow = _viewModel.DetectedRows.FirstOrDefault(r => r.Id == sid);
+            if (serverRow is not null && !ReferenceEquals(ServersList.SelectedItem, serverRow))
+            {
+                ProvidersList.SelectedItem = null;
+                ServersList.SelectedItem = serverRow;
+            }
+            else if (providerRow is not null && !ReferenceEquals(ProvidersList.SelectedItem, providerRow))
+            {
+                ServersList.SelectedItem = null;
+                ProvidersList.SelectedItem = providerRow;
+            }
+        }
 
         ApplyDetail();
     }
@@ -190,7 +222,7 @@ public sealed partial class ModelsPage : Page
 
         if (vm.SelectedServer is { } server)
         {
-            StatusDot.Fill = new SolidColorBrush(server.Status == ManagedModelServerStatus.Running ? Colors.Green : Colors.Red);
+            DetailIcon.Opacity = 0.85;
             DetailTitleText.Text = server.Model;
             DetailPortText.Text = $"port {server.Port}";
             OnMacUrlText.Text = $"http://{server.Host}:{server.Port}";
@@ -207,14 +239,14 @@ public sealed partial class ModelsPage : Page
                 else
                 {
                     ContainerUrlRow.Visibility = Visibility.Collapsed;
-                    ContainerUrlCaptionText.Text = "Default network gateway unavailable.";
+                    ContainerUrlCaptionText.Text = "Network gateway unavailable — open Networks or create a network.";
                     ContainerUrlCaptionText.Visibility = Visibility.Visible;
                 }
             }
             else
             {
                 ContainerUrlRow.Visibility = Visibility.Collapsed;
-                ContainerUrlCaptionText.Text = "Loopback-only - bound to 127.0.0.1, so containers can't reach it.";
+                ContainerUrlCaptionText.Text = "Loopback-only — bound to 127.0.0.1, so containers can't reach it.";
                 ContainerUrlCaptionText.Visibility = Visibility.Visible;
             }
 
@@ -222,13 +254,14 @@ public sealed partial class ModelsPage : Page
             NoModelsText.Visibility = Visibility.Collapsed;
 
             ChatButton.Visibility = server.Status == ManagedModelServerStatus.Running ? Visibility.Visible : Visibility.Collapsed;
+            NewSandboxButton.Visibility = server.Status == ManagedModelServerStatus.Running ? Visibility.Visible : Visibility.Collapsed;
             StopButton.Visibility = Visibility.Visible;
             ShowLogButton.Visibility = Visibility.Visible;
             FailedText.Visibility = server.Status == ManagedModelServerStatus.Failed ? Visibility.Visible : Visibility.Collapsed;
         }
         else if (vm.SelectedProvider is { } provider)
         {
-            StatusDot.Fill = new SolidColorBrush(Colors.Gray);
+            DetailIcon.Opacity = 0.7;
             DetailTitleText.Text = provider.Kind.DisplayName();
             DetailPortText.Text = $"port {provider.Port}";
             OnMacUrlText.Text = provider.HostBaseUrl;
@@ -238,13 +271,16 @@ public sealed partial class ModelsPage : Page
             {
                 ContainerUrlRow.Visibility = Visibility.Visible;
                 ContainerUrlText.Text = ModelBridge.ContainerBaseUrl(gateway, provider.Port, provider.Api);
-                ContainerUrlCaptionText.Text = "Reachable from containers only if this server is bound to 0.0.0.0 (some default to 127.0.0.1).";
+                ContainerUrlCaptionText.Text =
+                    "Reachable from containers only if this server is bound to 0.0.0.0 (some default to 127.0.0.1).";
                 ContainerUrlCaptionText.Visibility = Visibility.Visible;
             }
             else
             {
                 ContainerUrlRow.Visibility = Visibility.Collapsed;
-                ContainerUrlCaptionText.Visibility = Visibility.Collapsed;
+                ContainerUrlCaptionText.Text =
+                    "No network gateway found — load Networks so the container URL can be computed.";
+                ContainerUrlCaptionText.Visibility = Visibility.Visible;
             }
 
             if (provider.Models.Count == 0)
@@ -261,9 +297,18 @@ public sealed partial class ModelsPage : Page
             }
 
             ChatButton.Visibility = Visibility.Visible;
+            NewSandboxButton.Visibility = Visibility.Visible;
             StopButton.Visibility = Visibility.Collapsed;
             ShowLogButton.Visibility = Visibility.Collapsed;
             FailedText.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private async void NewSandboxButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null) return;
+        // Open Run Container so the user can wire a sandbox to this model (bridge picker).
+        var dialog = new RunContainerDialog(_viewModel.Services, imageName: "") { XamlRoot = XamlRoot };
+        await dialog.ShowAsync();
     }
 }

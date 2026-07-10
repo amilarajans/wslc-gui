@@ -57,6 +57,15 @@ public sealed class FakeContainerBackend : IContainerBackend
     public Task<IReadOnlyList<ContainerNetwork>> ListNetworksAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ContainerNetwork>>(Networks.ToList());
 
+    public Task<IReadOnlyList<ContainerNetworkAttachment>> ListContainerNetworkAttachmentsAsync(
+        string containerId, CancellationToken ct = default)
+    {
+        var c = Containers.FirstOrDefault(x =>
+            string.Equals(x.Configuration.Id, containerId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(x.Configuration.Hostname, containerId, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult<IReadOnlyList<ContainerNetworkAttachment>>(c?.Networks ?? []);
+    }
+
     public Task CreateNetworkAsync(string name, string? subnet, Dictionary<string, string> labels, CancellationToken ct = default) =>
         Task.CompletedTask;
 

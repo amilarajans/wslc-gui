@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using OrchardWin.App.ViewModels;
-using OrchardWin.Core.Services;
 
 namespace OrchardWin.App.Views;
 
@@ -22,17 +21,57 @@ public sealed partial class LogsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        var services = NavigationArgs.From(e.Parameter).Services;
-        _viewModel = new LogsViewModel(services);
-        _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyViewModelState);
+        var args = NavigationArgs.From(e.Parameter);
+        _viewModel = new LogsViewModel(args.Services);
+        TargetCombo.ItemsSource = _viewModel.Targets;
+        LogLinesControl.ItemsSource = _viewModel.DisplayLines;
+        _viewModel.PropertyChanged += (_, e2) =>
+        {
+            if (e2.PropertyName is nameof(LogsViewModel.LinesRevision)
+                or nameof(LogsViewModel.DisplayLines)
+                or nameof(LogsViewModel.Targets)
+                or nameof(LogsViewModel.SelectedTarget)
+                or nameof(LogsViewModel.IsPaused)
+                or nameof(LogsViewModel.IsLoading)
+                or nameof(LogsViewModel.MatchCountText)
+                or nameof(LogsViewModel.StatusMessage)
+                or null)
+            {
+                DispatcherQueue.RunOnUi(ApplyViewModelState);
+            }
+        };
+
+        if (!string.IsNullOrEmpty(args.SelectContainerId))
+            _viewModel.PreferContainer(args.SelectContainerId);
+
+        ApplyViewModelState();
+        // Ensure container list is warm so the target picker is not empty on first visit.
+        _ = WarmAndRefreshAsync(args.Services);
+    }
+
+    private async Task WarmAndRefreshAsync(OrchardWin.Core.Services.AppServices services)
+    {
+        try
+        {
+            await services.ContainerListService.LoadAsync(showLoading: false);
+        }
+        catch
+        {
+            // best-effort
+        }
+        if (_viewModel is not null)
+            await _viewModel.RefreshAsync();
+    }
+
+    /// Called when navigating to Logs while already on the page.
+    public void PreferContainer(string containerId)
+    {
+        _viewModel?.PreferContainer(containerId);
         ApplyViewModelState();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // LogsViewModel holds no timer of its own (matches this app's convention - see
-        // DashboardPage) - poll on a ~2s cadence while this page is visible, mirroring
-        // MultiLogView's LogPaneView refresh timer.
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _pollTimer.Tick += async (_, _) =>
         {
@@ -71,33 +110,37 @@ public sealed partial class LogsPage : Page
         _isSyncingSelection = true;
         try
         {
-            TargetCombo.ItemsSource = _viewModel.Targets;
-            TargetCombo.SelectedItem = _viewModel.SelectedTarget;
+            if (!ReferenceEquals(TargetCombo.ItemsSource, _viewModel.Targets))
+                TargetCombo.ItemsSource = _viewModel.Targets;
+            if (!ReferenceEquals(TargetCombo.SelectedItem, _viewModel.SelectedTarget))
+                TargetCombo.SelectedItem = _viewModel.SelectedTarget;
         }
         finally
         {
             _isSyncingSelection = false;
         }
 
-        PauseIcon.Glyph = _viewModel.IsPaused ? "" : "";
+        PauseIcon.Glyph = _viewModel.IsPaused ? "\uE768" : "\uE769";
         PauseButtonText.Text = _viewModel.IsPaused ? "Resume" : "Pause";
-
         MatchCountText.Text = _viewModel.MatchCountText ?? "";
 
         var hasTarget = _viewModel.SelectedTarget is not null;
         var hasLines = _viewModel.DisplayLines.Count > 0;
+        var status = _viewModel.StatusMessage;
 
-        LogLinesControl.ItemsSource = _viewModel.DisplayLines;
+        if (!ReferenceEquals(LogLinesControl.ItemsSource, _viewModel.DisplayLines))
+            LogLinesControl.ItemsSource = _viewModel.DisplayLines;
 
         if (!hasTarget)
         {
-            EmptyStateText.Text = "Select a container or machine above";
+            EmptyStateText.Text = status ?? "Select a container or machine above";
             EmptyStateText.Visibility = Visibility.Visible;
             LogScroller.Visibility = Visibility.Collapsed;
         }
         else if (!hasLines)
         {
-            EmptyStateText.Text = _viewModel.IsLoading ? "Loading logs..." : "No logs available";
+            EmptyStateText.Text = status
+                ?? (_viewModel.IsLoading ? "Loading logs..." : "No logs available");
             EmptyStateText.Visibility = Visibility.Visible;
             LogScroller.Visibility = Visibility.Collapsed;
         }
@@ -105,7 +148,10 @@ public sealed partial class LogsPage : Page
         {
             EmptyStateText.Visibility = Visibility.Collapsed;
             LogScroller.Visibility = Visibility.Visible;
-            LogScroller.ChangeView(null, LogScroller.ScrollableHeight, null);
+            var nearBottom = LogScroller.ScrollableHeight <= 0
+                || LogScroller.VerticalOffset >= LogScroller.ScrollableHeight - 48;
+            if (nearBottom)
+                LogScroller.ChangeView(null, LogScroller.ScrollableHeight, null);
         }
     }
 }

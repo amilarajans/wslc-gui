@@ -24,8 +24,13 @@ Update this file when direction or priorities change.
 | Dashboard → Containers deep-link (click row) | **Done** |
 | Containers detail like Orchard screenshots | **Done** (metric cards + config wells) |
 | Containers nav crash (SolidColorBrush off UI thread) | **Done** — no DependencyObjects in row VMs |
-| Full feature parity (Mounts, Registries, etc.) | **In progress / partial** |
-| Polish remaining pages (Images, Machines, Networks, DNS, Models) to Orchard look | **Next** |
+| Crash file logging + .NET mini-dumps | **Done** — `%LOCALAPPDATA%\wslc-gui\logs` + `dumps` |
+| Sidebar/list icons match Orchard SF Symbol meanings | **Done** (Segoe Fluent mapping; see `AppIcons.cs`) |
+| Containers hard crash still under investigation | **In progress** — logs + selection hardening |
+| Full feature parity (Mounts, Registries, etc.) | **In progress** (Mounts page done; Registries still open) |
+| Images page like Orchard screenshot | **Done** (list + Overview/Technical/Config/Used By) |
+| System-wide list/chart flicker | **Done** (`ObservableCollectionSync` + bind-once + metrics in place) |
+| Polish remaining pages (Machines, Networks, DNS, Models) to Orchard look | **Next** |
 
 ---
 
@@ -56,6 +61,21 @@ Reference macOS source lives only under `_reference/orchard` (gitignored; not pu
 10. **Nav pane** — Orchard-style groups + count badges.  
 11. **Dashboard container click** → Containers page + select that container.  
 12. **Containers UI** — list + detail with metric cards, time windows, Overview/Environment/Image/Process/Network/Labels.  
+13. **Crash logging** — session + crash logs under `%LOCALAPPDATA%\wslc-gui\logs\`; .NET mini-dumps under `...\dumps\`; `UnhandledException` handlers.  
+14. **Icons** — nav/list glyphs mapped from Orchard SF Symbols (`cube`, `sparkles`, …) to Segoe Fluent (`AppIcons.cs`).  
+15. **Images UI** — Orchard-style list + detail: Overview / Technical Details / Configuration / Used By Containers; Launch opens Run dialog.  
+16. **Anti-flicker (system-wide)** — stable `ObservableCollection`s + in-place sync (`ObservableCollectionSync`); pages bind `ItemsSource` once; stats ticks update charts/labels only; logs skip unchanged tails.  
+
+### Crash / debug logs (when the app dies)
+
+| Path | Contents |
+|------|----------|
+| `%LOCALAPPDATA%\wslc-gui\logs\latest.log` | Current session (overwritten each launch) |
+| `%LOCALAPPDATA%\wslc-gui\logs\app-*.log` | Timestamped session logs |
+| `%LOCALAPPDATA%\wslc-gui\logs\crash-*.log` | Unhandled exception dumps |
+| `%LOCALAPPDATA%\wslc-gui\dumps\crash-*.dmp` | .NET mini-dumps (when runtime captures them) |
+| `%LOCALAPPDATA%\CrashDumps\OrchardWin.App.exe.*.dmp` | Windows native dumps |
+| Event Viewer → Application | `0xc000027b` / APPCRASH entries |
 
 ---
 
@@ -124,7 +144,7 @@ dotnet test tests/OrchardWin.App.Tests/OrchardWin.App.Tests.csproj -p:Platform=x
 - [ ] **Images** page polish to match Orchard (detail header, inspect layout).  
 - [ ] **Machines** detail / create flow polish.  
 - [ ] **Networks / DNS** detail UI closer to Orchard.  
-- [ ] **Mounts** dedicated tab (Orchard has it; we only derive mounts on containers).  
+- [x] **Mounts** dedicated tab (list + detail from inspect; AllMounts / nav badge).  
 - [ ] **Registries** (Orchard has it; `wslc registry` / login exist).  
 - [ ] **Logs** deep-link from Containers “Logs” button (currently navigates to Logs only).  
 - [ ] Richer **container inspect** from real `wslc container inspect` (fill env/ports/mounts when list is slim).  

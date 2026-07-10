@@ -21,33 +21,41 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Padding="20,16,20,8">
-            <ToggleButton x:Name="ModelsTabButton" Content="Local Models" IsChecked="True" Click="ModelsTabButton_Click" />
-            <ToggleButton x:Name="SandboxesTabButton" Content="Sandboxes" Click="SandboxesTabButton_Click" />
+        <!-- Optional sub-tabs: models (default) vs sandboxes — Orchard keeps sandboxes separate
+             under Sandboxes nav; we keep a quiet switch here. -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Padding="16,10,16,4">
+            <ToggleButton x:Name="ModelsTabButton" Content="Local Models" IsChecked="True" Click="ModelsTabButton_Click"
+                          Padding="12,4" />
+            <ToggleButton x:Name="SandboxesTabButton" Content="Sandboxes" Click="SandboxesTabButton_Click"
+                          Padding="12,4" />
         </StackPanel>
 
         <Grid Grid.Row="1" x:Name="ContentHost">
-            <!-- ================= Local Models tab ================= -->
+            <!-- ================= Local Models tab (Orchard ModelsListView + ModelDetailView) ================= -->
             <Grid x:Name="ModelsContent">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="340" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="300" MinWidth="240" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" MinWidth="360" />
                 </Grid.ColumnDefinitions>
 
                 <!-- List pane -->
-                <Grid Grid.Column="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+                <Grid Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Padding="16,4,12,8">
+                    <Grid Grid.Row="0" Padding="14,10,10,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Local Models" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <Button x:Name="AddButton" Grid.Column="1" Click="AddButton_Click" Background="Transparent" BorderThickness="0">
+                        <TextBlock Grid.Column="0" Text="Local Models" FontSize="15" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="AddButton" Grid.Column="1" Click="AddButton_Click"
+                                Background="Transparent" BorderThickness="0" Padding="8,4"
+                                ToolTipService.ToolTip="Start a managed model server">
                             <FontIcon Glyph="&#xE710;" FontSize="14" />
                         </Button>
                     </Grid>
@@ -82,10 +90,19 @@
                                 </StackPanel>
 
                                 <StackPanel x:Name="DetectedSection" Spacing="2">
-                                    <TextBlock Text="DETECTED" Opacity="0.6" FontSize="11" Padding="16,8,16,2" />
-                                    <ListView x:Name="ProvidersList" SelectionMode="Single" SelectionChanged="ProvidersList_SelectionChanged" Padding="4,0">
+                                    <TextBlock Text="Detected" Opacity="0.55" FontSize="11" Padding="16,8,16,2" />
+                                    <ListView x:Name="ProvidersList" SelectionMode="Single"
+                                              SelectionChanged="ProvidersList_SelectionChanged" Padding="4,0">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Padding" Value="8,8" />
+                                                <Setter Property="MinHeight" Value="0" />
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
                                         <ListView.ItemTemplate>
                                             <DataTemplate x:DataType="vm:ModelRow">
+                                                <!-- SF: cpu / sparkles-adjacent -->
                                                 <controls:ListItemRow Icon="&#xE950;" IconColor="{x:Bind IconColor}"
                                                                        PrimaryText="{x:Bind PrimaryText}"
                                                                        SecondaryLeftText="{x:Bind SecondaryText}" />
@@ -98,83 +115,100 @@
                     </Grid>
                 </Grid>
 
+                <Border Grid.Column="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
                 <!-- Detail pane -->
-                <Grid Grid.Column="1">
-                    <TextBlock x:Name="DetailEmptyText" Text="Select a model" Opacity="0.6"
+                <Grid Grid.Column="2">
+                    <TextBlock x:Name="DetailEmptyText" Text="Select a model" Opacity="0.55"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
 
                     <ScrollViewer x:Name="DetailScrollViewer" Visibility="Collapsed">
-                        <StackPanel x:Name="DetailPanel" Spacing="14" Padding="24" MaxWidth="640" HorizontalAlignment="Left">
-                            <Grid ColumnSpacing="8">
+                        <StackPanel x:Name="DetailPanel" Spacing="14" Padding="24,20,24,32"
+                                    MaxWidth="640" HorizontalAlignment="Left">
+                            <Grid ColumnSpacing="10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Ellipse x:Name="StatusDot" Grid.Column="0" Width="9" Height="9" VerticalAlignment="Center" />
+                                <FontIcon x:Name="DetailIcon" Grid.Column="0" Glyph="&#xE950;" FontSize="18"
+                                          VerticalAlignment="Center" Opacity="0.7" />
                                 <TextBlock x:Name="DetailTitleText" Grid.Column="1" FontSize="18" FontWeight="SemiBold"
                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                <Border Grid.Column="3" Background="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="10" Padding="8,2">
-                                    <TextBlock x:Name="DetailPortText" FontSize="11" Opacity="0.8" />
+                                <Border Grid.Column="3" Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                        CornerRadius="10" Padding="10,3" VerticalAlignment="Center">
+                                    <TextBlock x:Name="DetailPortText" FontSize="11" Opacity="0.75" />
                                 </Border>
                             </Grid>
 
-                            <Grid ColumnSpacing="8">
+                            <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="130" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="On this Mac" Opacity="0.6" FontSize="12" />
-                                <TextBlock x:Name="OnMacUrlText" Grid.Column="1" FontFamily="Cascadia Mono,Consolas" FontSize="12"
-                                           IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                                <TextBlock Grid.Column="0" Text="On this PC" Opacity="0.55" FontSize="12" />
+                                <TextBlock x:Name="OnMacUrlText" Grid.Column="1" FontFamily="Cascadia Mono,Consolas"
+                                           FontSize="12" IsTextSelectionEnabled="True" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                             </Grid>
 
-                            <Grid x:Name="ContainerUrlRow" ColumnSpacing="8">
+                            <Grid x:Name="ContainerUrlRow" ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="130" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="From containers" Opacity="0.6" FontSize="12" />
-                                <TextBlock x:Name="ContainerUrlText" Grid.Column="1" FontFamily="Cascadia Mono,Consolas" FontSize="12"
-                                           IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                                <TextBlock Grid.Column="0" Text="From containers" Opacity="0.55" FontSize="12" />
+                                <TextBlock x:Name="ContainerUrlText" Grid.Column="1" FontFamily="Cascadia Mono,Consolas"
+                                           FontSize="12" IsTextSelectionEnabled="True" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                             </Grid>
 
-                            <TextBlock x:Name="ContainerUrlCaptionText" Opacity="0.6" FontSize="11" TextWrapping="Wrap" />
+                            <TextBlock x:Name="ContainerUrlCaptionText" Opacity="0.5" FontSize="11"
+                                       TextWrapping="Wrap" />
 
                             <StackPanel x:Name="ModelsListSection" Spacing="4">
-                                <TextBlock x:Name="ModelsHeaderText" Opacity="0.6" FontSize="12" />
-                                <ListView x:Name="ModelsListView" SelectionMode="None" MaxHeight="200">
-                                    <ListView.ItemTemplate>
+                                <TextBlock x:Name="ModelsHeaderText" Opacity="0.55" FontSize="12" />
+                                <ItemsControl x:Name="ModelsListView">
+                                    <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding}" FontFamily="Cascadia Mono,Consolas" FontSize="12" IsTextSelectionEnabled="True" />
+                                            <TextBlock Text="{Binding}" FontFamily="Cascadia Mono,Consolas"
+                                                       FontSize="12" IsTextSelectionEnabled="True"
+                                                       Margin="0,2" />
                                         </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                </ListView>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
-                            <TextBlock x:Name="NoModelsText" Text="No models reported" Opacity="0.6" FontSize="12" />
+                            <TextBlock x:Name="NoModelsText" Text="No models reported" Opacity="0.55" FontSize="12" />
 
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="ChatButton" Click="ChatButton_Click">
+                                <Button x:Name="ChatButton" Click="ChatButton_Click" Padding="12,6">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE945;" FontSize="13" />
+                                        <FontIcon Glyph="&#xE8BD;" FontSize="13" />
                                         <TextBlock Text="Chat…" />
                                     </StackPanel>
                                 </Button>
-                                <Button x:Name="StopButton" Click="StopButton_Click">
+                                <Button x:Name="NewSandboxButton" Click="NewSandboxButton_Click" Padding="12,6">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE72E;" FontSize="13" />
+                                        <TextBlock Text="New sandbox…" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="StopButton" Click="StopButton_Click" Padding="12,6">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon Glyph="&#xE71A;" FontSize="13" />
                                         <TextBlock Text="Stop" />
                                     </StackPanel>
                                 </Button>
-                                <Button x:Name="ShowLogButton" Click="ShowLogButton_Click">
+                                <Button x:Name="ShowLogButton" Click="ShowLogButton_Click" Padding="12,6">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE7BA;" FontSize="13" />
+                                        <FontIcon Glyph="&#xE8A5;" FontSize="13" />
                                         <TextBlock Text="Show Log" />
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
-                            <TextBlock x:Name="FailedText" Text="Stopped unexpectedly" Foreground="Red" FontSize="12" Visibility="Collapsed" />
+                            <TextBlock x:Name="FailedText" Text="Stopped unexpectedly" Foreground="Red"
+                                       FontSize="12" Visibility="Collapsed" />
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

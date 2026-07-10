@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Xaml;
 using OrchardWin.Core.Models;
 using OrchardWin.Core.Services;
 
@@ -9,6 +10,8 @@ namespace OrchardWin.App.ViewModels;
 /// One row in the container list: the raw container plus the pre-computed display fields the
 /// page's row template binds to. No WinUI DependencyObjects here — brushes created off the
 /// UI thread (e.g. after async LoadAsync) crash with RPC_E_WRONG_THREAD (0x8001010E).
+/// Icon colour is expressed as Visibility toggles so XAML can use ThemeResource brushes
+/// (matching Orchard's green-vs-secondary cube), never SolidColorBrush from the VM.
 public sealed record ContainerRowVm(
     Container Container,
     string PrimaryText,
@@ -18,7 +21,9 @@ public sealed record ContainerRowVm(
     bool ShowSandboxBadge)
 {
     public string Id => Container.Configuration.Id;
-    public double IconOpacity => IsRunning ? 1.0 : 0.35;
+    public Visibility RunningIconVisibility => IsRunning ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility StoppedIconVisibility => IsRunning ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility SandboxBadgeVisibility => ShowSandboxBadge ? Visibility.Visible : Visibility.Collapsed;
 }
 
 /// Thin glue for ContainersPage: selection/filter/sort UI state and command wiring over
@@ -41,14 +46,19 @@ public sealed partial class ContainersViewModel : ObservableObject
     [ObservableProperty]
     private ContainerSortOption _sortOption = ContainerSortOption.Name;
 
-    [ObservableProperty]
-    private ObservableCollection<Container> _filteredContainers = [];
+    /// Mutated in place on refresh (never replaced) so ListView.ItemsSource stays stable.
+    public ObservableCollection<Container> FilteredContainers { get; } = [];
 
-    [ObservableProperty]
-    private ObservableCollection<ContainerRowVm> _containerRows = [];
+    /// Mutated in place on refresh (never replaced) so ListView does not flicker every poll.
+    public ObservableCollection<ContainerRowVm> ContainerRows { get; } = [];
 
     [ObservableProperty]
     private Container? _selectedContainer;
+
+    /// Bumped once per stats sample so the page can redraw metric cards without a full
+    /// list/config rebuild. Avoids the old RaiseStatsChanged flood (15 PropertyChanged → 15 full UI passes).
+    [ObservableProperty]
+    private int _statsRevision;
 
     /// Ids the list view currently has multi-selected - the context menu's "target set" when
     /// more than one row is selected, mirroring Swift's `selectedContainers: Set<String>`.
@@ -76,7 +86,16 @@ public sealed partial class ContainersViewModel : ObservableObject
                 NotifyLifecycleCommandsCanExecuteChanged();
             }
         };
-        _services.StatsService.PropertyChanged += (_, _) => RaiseStatsChanged();
+        _services.StatsService.PropertyChanged += (_, e) =>
+        {
+            // Only live stats collections drive the detail charts — ignore loading flags.
+            if (e.PropertyName is null
+                or nameof(StatsService.ContainerStats)
+                or nameof(StatsService.MachineStats))
+            {
+                RaiseStatsChanged();
+            }
+        };
         _services.AlertCenter.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is null or nameof(AlertCenter.Current))
@@ -167,9 +186,25 @@ public sealed partial class ContainersViewModel : ObservableObject
         ordered.AddRange(running);
         ordered.AddRange(notRunning);
 
-        FilteredContainers = new ObservableCollection<Container>(ordered);
-        ContainerRows = new ObservableCollection<ContainerRowVm>(ordered.Select(BuildRow));
+        var newRows = ordered.Select(BuildRow).ToList();
+        var filteredChanged = ObservableCollectionSync.Sync(FilteredContainers, ordered, same: (a, b) =>
+            string.Equals(a.Configuration.Id, b.Configuration.Id, StringComparison.Ordinal)
+            && string.Equals(a.Status, b.Status, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(a.Configuration.Image.Reference, b.Configuration.Image.Reference, StringComparison.Ordinal));
+        var rowsChanged = ObservableCollectionSync.Sync(ContainerRows, newRows, same: RowDisplayEquals);
+
+        // Only notify when display data actually changed — quiet polls stay silent.
+        if (filteredChanged) OnPropertyChanged(nameof(FilteredContainers));
+        if (rowsChanged) OnPropertyChanged(nameof(ContainerRows));
     }
+
+    private static bool RowDisplayEquals(ContainerRowVm a, ContainerRowVm b) =>
+        string.Equals(a.Id, b.Id, StringComparison.Ordinal)
+        && string.Equals(a.PrimaryText, b.PrimaryText, StringComparison.Ordinal)
+        && string.Equals(a.SecondaryLeftText, b.SecondaryLeftText, StringComparison.Ordinal)
+        && string.Equals(a.SecondaryRightText, b.SecondaryRightText, StringComparison.Ordinal)
+        && a.IsRunning == b.IsRunning
+        && a.ShowSandboxBadge == b.ShowSandboxBadge;
 
     private static ContainerRowVm BuildRow(Container c)
     {
@@ -202,28 +237,33 @@ public sealed partial class ContainersViewModel : ObservableObject
     {
         if (SelectedContainer is null) return;
         var id = SelectedContainer.Configuration.Id;
-        SelectedContainer = _services.ContainerListService.Containers.FirstOrDefault(c => c.Configuration.Id == id);
+        var fresh = _services.ContainerListService.Containers.FirstOrDefault(c => c.Configuration.Id == id);
+        if (fresh is null)
+        {
+            SelectedContainer = null;
+            return;
+        }
+
+        // Same identity + status: keep selection without PropertyChanged (avoids detail rebuild
+        // every 2s poll). Still swap the field so later actions use the newest model.
+        if (string.Equals(SelectedContainer.Status, fresh.Status, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(SelectedContainer.Configuration.Image.Reference, fresh.Configuration.Image.Reference, StringComparison.Ordinal)
+            && SelectedContainer.Networks.Count == fresh.Networks.Count)
+        {
+            // Intentional: update backing model without PropertyChanged (poll must not rebuild UI).
+#pragma warning disable MVVMTK0034
+            _selectedContainer = fresh;
+#pragma warning restore MVVMTK0034
+            return;
+        }
+
+        SelectedContainer = fresh;
     }
 
     private void RaiseStatsChanged()
     {
-        OnPropertyChanged(nameof(SelectedSample));
-        OnPropertyChanged(nameof(SelectedRawStats));
-        OnPropertyChanged(nameof(SelectedCpuPercentText));
-        OnPropertyChanged(nameof(SelectedMemoryText));
-        OnPropertyChanged(nameof(SelectedMemorySecondaryText));
-        OnPropertyChanged(nameof(SelectedNetworkRxText));
-        OnPropertyChanged(nameof(SelectedNetworkTxText));
-        OnPropertyChanged(nameof(SelectedDiskReadText));
-        OnPropertyChanged(nameof(SelectedDiskWriteText));
-        OnPropertyChanged(nameof(SelectedCpuHistory));
-        OnPropertyChanged(nameof(SelectedMemoryHistory));
-        OnPropertyChanged(nameof(SelectedNetworkRxHistory));
-        OnPropertyChanged(nameof(SelectedNetworkTxHistory));
-        OnPropertyChanged(nameof(SelectedDiskReadHistory));
-        OnPropertyChanged(nameof(SelectedDiskWriteHistory));
-        OnPropertyChanged(nameof(SelectedCoresAllocated));
-        OnPropertyChanged(nameof(SelectedMemoryLimitBytes));
+        // Single notification — page redraws metrics only (not the list or config cards).
+        StatsRevision++;
     }
 
     public static bool IsRunning(Container c) => string.Equals(c.Status, "running", StringComparison.OrdinalIgnoreCase);

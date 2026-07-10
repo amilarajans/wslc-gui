@@ -5,37 +5,118 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tb="using:H.NotifyIcon"
+    xmlns:controls="using:OrchardWin.App.Controls"
     mc:Ignorable="d"
-    ToolTipText="Orchard for Windows"
+    ToolTipText="wslc-gui"
     IconSource="ms-appx:///Assets/TrayIcon.ico"
-    MenuActivation="LeftOrRightClick"
-    NoLeftClickDelay="True"
-    LeftClickCommand="{x:Bind OpenCommand}">
+    MenuActivation="None"
+    PopupActivation="LeftOrRightClick"
+    NoLeftClickDelay="True">
 
     <!--
-        System tray presence, replacing Orchard's macOS menu-bar extra
-        (MenuBarDashboard.swift) - simplified here to a compact text summary and a
-        per-container list instead of the original's custom-drawn CPU/memory donut rings
-        (WinUI has no equivalent lightweight vector-chart primitive used elsewhere in this
-        app; Sparkline covers line history, not a ring gauge, and drawing one from scratch
-        wasn't worth it for a tray flyout). VERIFY: H.NotifyIcon.WinUI's exact XAML surface
-        (element/attribute names below) against the installed package version once building
-        on Windows - the "using:H.NotifyIcon" namespace, MenuActivation/NoLeftClickDelay/
-        LeftClickCommand names, and ContextFlyout support are based on the package's public
-        examples, not a signature actually compiled here. VERIFY also the IconSource URI:
-        Assets/TrayIcon.ico is a real generated icon copied to the output directory (see the
-        csproj Content item), but whether `ms-appx:///` resolves in this unpackaged
-        (WindowsPackageType=None) configuration vs. needing a plain relative path or an
-        absolute AppContext.BaseDirectory path is untestable from macOS.
+        Orchard-style menu-bar panel: CPU/MEMORY rings + container rows + Open/Exit.
+        Left or right click opens this popup (MenuActivation=None so ContextFlyout
+        does not steal right-click / fight the popup).
+        Note: TaskbarIcon is created outside the Window tree — App must assign
+        XamlRoot from MainWindow or ShowTrayPopup throws
+        "XamlRoot must be explicitly set for unparented popup".
     -->
-    <tb:TaskbarIcon.ContextFlyout>
-        <MenuFlyout>
-            <MenuFlyoutItem x:Name="OpenMenuItem" Text="Open Orchard for Windows" Click="OnOpenClick" />
-            <MenuFlyoutSeparator />
-            <MenuFlyoutItem x:Name="StartSystemMenuItem" Text="Start" Click="OnStartSystemClick" Visibility="Collapsed" />
-            <MenuFlyoutSeparator x:Name="StartSystemSeparator" Visibility="Collapsed" />
-            <MenuFlyoutItem Text="Exit" Click="OnExitClick" />
-        </MenuFlyout>
-    </tb:TaskbarIcon.ContextFlyout>
+    <tb:TaskbarIcon.TrayPopup>
+        <Border x:Name="TrayPanel" Width="320" Padding="12"
+                Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="12"
+                Loaded="TrayPanel_Loaded">
+            <StackPanel Spacing="10">
+                <!-- Rings card -->
+                <Border x:Name="RingsCard" Padding="12" CornerRadius="10"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        PointerEntered="RingsCard_PointerEntered"
+                        PointerExited="RingsCard_PointerExited">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <controls:ResourceRing x:Name="CpuRing" Grid.Column="0" Height="120" />
+                        <controls:ResourceRing x:Name="MemRing" Grid.Column="1" Height="120" />
+                    </Grid>
+                    <FlyoutBase.AttachedFlyout>
+                        <Flyout x:Name="SystemHistoryFlyout" Placement="Left">
+                            <Border Width="220" Padding="12" CornerRadius="10"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="System" FontWeight="SemiBold" FontSize="13" />
+                                    <StackPanel Spacing="4">
+                                        <Grid>
+                                            <TextBlock Text="CPU" FontSize="11" Opacity="0.55" />
+                                            <TextBlock x:Name="SystemCpuNow" HorizontalAlignment="Right"
+                                                       FontSize="11" Opacity="0.7"
+                                                       FontFamily="Cascadia Mono,Consolas" />
+                                        </Grid>
+                                        <controls:MiniBarChart x:Name="SystemCpuBars" Height="56" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <Grid>
+                                            <TextBlock Text="Memory" FontSize="11" Opacity="0.55" />
+                                            <TextBlock x:Name="SystemMemNow" HorizontalAlignment="Right"
+                                                       FontSize="11" Opacity="0.7"
+                                                       FontFamily="Cascadia Mono,Consolas" />
+                                        </Grid>
+                                        <controls:MiniBarChart x:Name="SystemMemBars" Height="56" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Flyout>
+                    </FlyoutBase.AttachedFlyout>
+                </Border>
 
+                <!-- Containers card -->
+                <Border x:Name="ContainersCard" Padding="12" CornerRadius="10"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        Visibility="Collapsed">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="CONTAINERS" FontSize="11" FontWeight="SemiBold"
+                                   Opacity="0.55" CharacterSpacing="40" />
+                        <StackPanel x:Name="ContainerRowsHost" Spacing="0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Open + Exit -->
+                <Border Padding="4" CornerRadius="10"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1">
+                    <StackPanel Spacing="4">
+                        <Button x:Name="OpenButton" Content="Open wslc-gui"
+                                HorizontalAlignment="Stretch" Click="OnOpenClick"
+                                Padding="12,8" CornerRadius="8" />
+                        <HyperlinkButton Content="Exit" HorizontalAlignment="Center"
+                                         Click="OnExitClick" FontSize="12" Opacity="0.7" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="SystemStoppedCard" Visibility="Collapsed" Padding="12" CornerRadius="10"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Width="8" Height="8" Fill="Orange" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="Containers is stopped" FontSize="13"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Content="Start" Click="OnStartSystemClick" Padding="12,4" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Border>
+    </tb:TaskbarIcon.TrayPopup>
 </tb:TaskbarIcon>

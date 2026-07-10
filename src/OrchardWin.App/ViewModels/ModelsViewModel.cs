@@ -8,35 +8,17 @@ using Windows.UI;
 
 namespace OrchardWin.App.ViewModels;
 
-/// One row in either the "Managed by Orchard-Win" or "Detected" list: the raw entity's id
-/// plus the display-ready text/color the row needs. Mirrors DashboardViewModel's
-/// `UtilisationRow` - a thin per-row projection over service state, not a re-implementation
-/// of it, so `ListItemRow` can bind without a converter.
 public sealed record ModelRow(string Id, string PrimaryText, string SecondaryText, Color IconColor);
 
-/// Thin glue for the Models page: derives the "Detected" list (providers minus ports our own
-/// managed servers already answer on, mirroring Swift's `ModelsListView.detected`), tracks
-/// the current cross-list selection, and wires the managed-server lifecycle actions. Talks to
-/// `ModelService`/`ModelServerService`/`NetworkService` directly - no state here duplicates
-/// what those services already track beyond the row/selection projections.
 public sealed partial class ModelsViewModel : ObservableObject
 {
     private readonly AppServices _services;
 
-    /// Exposed so the page can reach services directly for dialogs (CreateModelServerDialog,
-    /// TestModelPromptDialog) that take a service reference rather than the whole AppServices.
     public AppServices Services => _services;
 
-    [ObservableProperty]
-    private ObservableCollection<ModelRow> _serverRows = [];
-
-    [ObservableProperty]
-    private ObservableCollection<ModelRow> _detectedRows = [];
-
-    /// Detected providers minus the ports our own managed servers already cover - the same
-    /// filter `DetectedRows` uses, kept as the real entities (not rows) for the detail pane.
-    [ObservableProperty]
-    private ObservableCollection<ModelProvider> _detectedProviders = [];
+    public ObservableCollection<ModelRow> ServerRows { get; } = [];
+    public ObservableCollection<ModelRow> DetectedRows { get; } = [];
+    public ObservableCollection<ModelProvider> DetectedProviders { get; } = [];
 
     [ObservableProperty]
     private bool _engineAvailable;
@@ -58,27 +40,35 @@ public sealed partial class ModelsViewModel : ObservableObject
         _services.ModelServerService.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ModelServerService.EngineAvailable))
-            {
                 EngineAvailable = _services.ModelServerService.EngineAvailable;
-            }
         };
 
-        // Servers/Providers are get-only ObservableCollections (never reassigned), so
-        // subscribing once here is safe for the lifetime of this view model.
         _services.ModelServerService.Servers.CollectionChanged += (_, _) => Refresh();
         _services.ModelService.Providers.CollectionChanged += (_, _) => Refresh();
-
+        _services.ModelService.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null or nameof(ModelService.Providers) or nameof(ModelService.IsLoading))
+                Refresh();
+        };
         Refresh();
     }
 
-    /// The gateway of the "default" network, for the container-reachable URL - mirrors the
-    /// Swift original's `containerURL(port:api:)` gateway lookup.
     public string? DefaultGateway
     {
         get
         {
-            var gateway = _services.NetworkService.Networks.FirstOrDefault(n => n.Id == "default")?.Status.Gateway;
-            return string.IsNullOrEmpty(gateway) ? null : gateway;
+            // Prefer named "default"/"bridge", else any network that has a gateway.
+            foreach (var n in _services.NetworkService.Networks)
+            {
+                if (string.Equals(n.Id, "default", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(n.Id, "bridge", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(n.Status.Gateway)) return n.Status.Gateway;
+                }
+            }
+            return _services.NetworkService.Networks
+                .Select(n => n.Status.Gateway)
+                .FirstOrDefault(g => !string.IsNullOrEmpty(g));
         }
     }
 
@@ -86,29 +76,79 @@ public sealed partial class ModelsViewModel : ObservableObject
     {
         await _services.ModelService.LoadAsync(showLoading);
         await _services.NetworkService.LoadAsync(showLoading: false);
+        // Re-check engine path each load (user may install ollama while app is open).
+        EngineAvailable = _services.ModelServerService.EngineAvailable
+            || LocateOllama() is not null;
+        Refresh();
     }
 
     public Task RefreshQuietAsync() => LoadAsync(showLoading: false);
+
+    private static string? LocateOllama()
+    {
+        try
+        {
+            var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var dir in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var candidate = Path.Combine(dir.Trim(), "ollama.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            var local = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "Ollama", "ollama.exe");
+            if (File.Exists(local)) return local;
+        }
+        catch { /* ignore */ }
+        return null;
+    }
 
     private void Refresh()
     {
         var managedPorts = _services.ModelServerService.ManagedPorts;
         var detected = _services.ModelService.Providers.Where(p => !managedPorts.Contains(p.Port)).ToList();
-        DetectedProviders = new ObservableCollection<ModelProvider>(detected);
 
-        ServerRows = new ObservableCollection<ModelRow>(_services.ModelServerService.Servers.Select(s => new ModelRow(
+        ObservableCollectionSync.Sync(DetectedProviders, detected, (a, b) =>
+            string.Equals(a.Id, b.Id, StringComparison.Ordinal)
+            && a.Port == b.Port
+            && a.Models.Count == b.Models.Count);
+
+        var serverRows = _services.ModelServerService.Servers.Select(s => new ModelRow(
             s.Id,
             s.Model,
             $"port {s.Port}",
-            s.Status == ManagedModelServerStatus.Running ? Colors.Green : Colors.Red)));
+            s.Status == ManagedModelServerStatus.Running ? Colors.Green : Colors.Red)).ToList();
 
-        DetectedRows = new ObservableCollection<ModelRow>(detected.Select(p => new ModelRow(
+        // Secondary line: "port 11434" matching Orchard; sparkles-ish gray for detected.
+        var detectedRows = detected.Select(p => new ModelRow(
             p.Id,
             p.Kind.DisplayName(),
             $"port {p.Port}",
-            Colors.Gray)));
+            Color.FromArgb(255, 156, 163, 175))).ToList();
 
+        var serversChanged = ObservableCollectionSync.Sync(ServerRows, serverRows, (a, b) =>
+            string.Equals(a.Id, b.Id, StringComparison.Ordinal)
+            && string.Equals(a.PrimaryText, b.PrimaryText, StringComparison.Ordinal)
+            && string.Equals(a.SecondaryText, b.SecondaryText, StringComparison.Ordinal)
+            && a.IconColor.Equals(b.IconColor));
+
+        var detectedChanged = ObservableCollectionSync.Sync(DetectedRows, detectedRows, (a, b) =>
+            string.Equals(a.Id, b.Id, StringComparison.Ordinal)
+            && string.Equals(a.PrimaryText, b.PrimaryText, StringComparison.Ordinal)
+            && string.Equals(a.SecondaryText, b.SecondaryText, StringComparison.Ordinal));
+
+        if (serversChanged) OnPropertyChanged(nameof(ServerRows));
+        if (detectedChanged) OnPropertyChanged(nameof(DetectedRows));
+        OnPropertyChanged(nameof(DetectedProviders));
+        OnPropertyChanged(nameof(DefaultGateway));
         RefreshSelection();
+
+        // Auto-select first detected/managed when nothing selected (Orchard list behaviour).
+        if (SelectedId is null)
+        {
+            var first = ServerRows.FirstOrDefault()?.Id ?? DetectedRows.FirstOrDefault()?.Id;
+            if (first is not null) SelectedId = first;
+        }
     }
 
     partial void OnSelectedIdChanged(string? value) => RefreshSelection();
@@ -127,8 +167,6 @@ public sealed partial class ModelsViewModel : ObservableObject
         if (SelectedServer is { } server) _services.ModelServerService.Stop(server.Id);
     }
 
-    /// Reveal the managed server's log file in File Explorer - the closest Windows analogue
-    /// to Swift's `NSWorkspace.shared.selectFile`.
     [RelayCommand]
     private void ShowLog()
     {

@@ -6,68 +6,62 @@ using Microsoft.UI.Xaml.Media;
 using OrchardWin.Core.Models;
 using OrchardWin.Core.Services;
 using Windows.System;
+using Windows.UI;
 
 namespace OrchardWin.App.Views;
 
-/// Flattened, x:Bind-friendly view of one Docker Hub <see cref="RegistrySearchResult"/> plus
-/// this dialog's live pull/pulled state for it - ImageService itself only tracks pull state
-/// keyed by image name (PullProgress) and the pulled-images list (Images), so this wrapper is
-/// rebuilt every time either of those changes, mirroring SearchResultRow's computed
-/// isPulling/isAlreadyPulled in ImageSearch.swift.
+/// One Docker Hub hit + live pull/pulled state for the result card (Orchard SearchResultRow).
 public sealed record SearchResultRow(RegistrySearchResult Result, bool IsPulling, bool IsAlreadyPulled)
 {
     public string Name => Result.Name;
     public string DisplayName => Result.DisplayName;
-    public string? Description => Result.Description;
+    public string Description => string.IsNullOrWhiteSpace(Result.Description) ? "" : Result.Description!;
 
-    public string MetaText => (Result.IsOfficial, Result.StarCount) switch
-    {
-        (true, > 0) => $"Official · {Result.StarCount} stars",
-        (true, _) => "Official",
-        (false, > 0) => $"{Result.StarCount} stars",
-        _ => "",
-    };
+    public Visibility OfficialVisibility =>
+        Result.IsOfficial ? Visibility.Visible : Visibility.Collapsed;
 
-    public string BadgeGlyph => Result.IsOfficial ? "" : "";
-    // Brush (not Color): FontIcon.Foreground is Brush; WASDK 1.8+ x:Bind rejects Color→Brush.
+    public Visibility StarsVisibility =>
+        Result.StarCount is > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public string StarsText => Result.StarCount is { } n ? n.ToString("N0") : "";
+
+    /// Official: checkmark seal; community: cube.transparent (Segoe).
+    public string BadgeGlyph => Result.IsOfficial ? "\uE73E" : "\uE81E";
+
     public Brush BadgeColor => new SolidColorBrush(
-        Result.IsOfficial ? Colors.DodgerBlue : Colors.Gray);
-    public bool ShowPullButton => !IsPulling && !IsAlreadyPulled;
+        Result.IsOfficial ? Color.FromArgb(255, 59, 130, 246) : Color.FromArgb(255, 156, 163, 175));
+
+    public Visibility PullingVisibility => IsPulling ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PullVisibility => !IsPulling && !IsAlreadyPulled ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RunVisibility => !IsPulling && IsAlreadyPulled ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// Flattened view of one in-flight <see cref="ImagePullProgress"/> for the Active Downloads
-/// list - same rationale as SearchResultRow above.
 public sealed record PullProgressDisplay(ImagePullProgress Progress)
 {
     public string ImageName => Progress.ImageName;
     public string Message => Progress.Message;
     public bool IsPulling => Progress.Status == PullStatus.Pulling;
     public double ProgressPercent => Progress.Progress * 100;
+    public Visibility PullingVisibility => IsPulling ? Visibility.Visible : Visibility.Collapsed;
 
-    // Brush (not Color): FontIcon.Foreground is Brush; WASDK 1.8+ x:Bind rejects Color→Brush.
     public Brush StatusColor => new SolidColorBrush(Progress.Status switch
     {
-        PullStatus.Pulling => Colors.DodgerBlue,
-        PullStatus.Completed => Colors.Green,
-        PullStatus.Failed => Colors.Red,
+        PullStatus.Pulling => Color.FromArgb(255, 59, 130, 246),
+        PullStatus.Completed => Color.FromArgb(255, 22, 163, 74),
+        PullStatus.Failed => Color.FromArgb(255, 220, 38, 38),
         _ => Colors.Gray,
     });
 
     public string StatusGlyph => Progress.Status switch
     {
-        PullStatus.Pulling => "",
-        PullStatus.Completed => "",
-        PullStatus.Failed => "",
-        _ => "",
+        PullStatus.Pulling => "\uE896",
+        PullStatus.Completed => "\uE73E",
+        PullStatus.Failed => "\uE711",
+        _ => "\uE946",
     };
 }
 
-/// Docker Hub image search + pull, ported from ImageSearchView/SearchResultRow/PullProgressRow
-/// in ImageSearch.swift. Shown as a modal ContentDialog from ImagesPage rather than a sheet;
-/// state lives directly on AppServices.ImageService (already ObservableObject) - this
-/// code-behind only holds the debounce/cancellation plumbing and the two display wrappers
-/// above, mirroring DashboardPage's "subscribe then re-render everything" code-behind shape
-/// rather than introducing a separate ViewModel class for a single dialog.
+/// Docker Hub search + pull, layout matching Orchard ImageSearchView screenshots.
 public sealed partial class ImageSearchDialog : ContentDialog
 {
     private readonly AppServices _services;
@@ -77,6 +71,11 @@ public sealed partial class ImageSearchDialog : ContentDialog
     {
         _services = services;
         InitializeComponent();
+        // Theme defaults clamp ContentDialog to ~548px; force Orchard 920×600 sheet.
+        Resources["ContentDialogMaxWidth"] = 980.0;
+        Resources["ContentDialogMinWidth"] = 920.0;
+        Resources["ContentDialogMaxHeight"] = 680.0;
+        Resources["ContentDialogMinHeight"] = 600.0;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -93,23 +92,30 @@ public sealed partial class ImageSearchDialog : ContentDialog
         _services.ImageService.PropertyChanged -= ImageService_PropertyChanged;
         _searchCts?.Cancel();
         _searchCts = null;
-        // Mirrors ImageSearchView.swift's onDisappear: don't leave stale search results lying
-        // around in the shared ImageService for the next time this dialog is opened.
         _services.ImageService.ClearSearchResults();
     }
 
     private void ImageService_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) =>
-        // ImageService clears pull progress from a Task.Delay continuation (thread pool),
-        // so this can fire off the UI thread - marshal before touching controls.
         DispatcherQueue.RunOnUi(ApplyState);
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Hide();
+
+    private void ClearQueryButton_Click(object sender, RoutedEventArgs e)
+    {
+        QueryBox.Text = "";
+        _services.ImageService.ClearSearchResults();
+        ApplyState();
+        QueryBox.Focus(FocusState.Programmatic);
+    }
 
     private void ApplyState()
     {
-        var query = QueryBox.Text;
+        var query = QueryBox.Text?.Trim() ?? "";
         var isSearching = _services.ImageService.IsSearching;
         var results = _services.ImageService.SearchResults;
 
-        SearchButton.IsEnabled = !string.IsNullOrWhiteSpace(query) && !isSearching;
+        SearchButton.IsEnabled = query.Length > 0 && !isSearching;
+        ClearQueryButton.Visibility = query.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchingRing.IsActive = isSearching;
 
         if (string.IsNullOrEmpty(query) && results.Count == 0)
@@ -125,15 +131,17 @@ public sealed partial class ImageSearchDialog : ContentDialog
             SetResultsState(hasResults: true);
             var images = _services.ImageService.Images;
             var pullProgress = _services.ImageService.PullProgress;
-            ResultsGrid.ItemsSource = results
+            // Orchard: images.contains { $0.reference.contains(result.displayName) }
+            ResultsRepeater.ItemsSource = results
                 .Take(12)
                 .Select(r => new SearchResultRow(
                     r,
                     IsPulling: pullProgress.ContainsKey(r.Name),
-                    IsAlreadyPulled: images.Any(i => i.Reference.Contains(r.DisplayName))))
+                    IsAlreadyPulled: images.Any(i =>
+                        i.Reference.Contains(r.DisplayName, StringComparison.OrdinalIgnoreCase))))
                 .ToList();
         }
-        else if (!string.IsNullOrEmpty(query))
+        else if (query.Length > 0)
         {
             SetResultsState(noResults: true);
         }
@@ -152,7 +160,7 @@ public sealed partial class ImageSearchDialog : ContentDialog
         QuickSearchPanel.Visibility = quickSearch ? Visibility.Visible : Visibility.Collapsed;
         SearchingPanel.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
         ResultsScroller.Visibility = hasResults ? Visibility.Visible : Visibility.Collapsed;
-        NoResultsText.Visibility = noResults ? Visibility.Visible : Visibility.Collapsed;
+        NoResultsPanel.Visibility = noResults ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void QueryBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyState();
@@ -176,15 +184,24 @@ public sealed partial class ImageSearchDialog : ContentDialog
     private void PullButton_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not string name) return;
-        // Fire-and-forget from a UI event handler, per this project's async-void convention -
-        // ImageService.PullAsync already alerts on failure via AlertCenter and raises
-        // PropertyChanged for PullProgress/Images as it progresses, which ApplyState picks up.
         _ = _services.ImageService.PullAsync(name);
     }
 
-    /// Cancel-then-debounce, mirroring ImageSearchView.swift's performSearch(): every call
-    /// cancels whatever search is still in flight, waits 300ms, then searches - so rapid
-    /// Enter/Search-button/quick-search clicks only ever let the last one through.
+    private async void RunButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string name) return;
+        // Prefer a local reference that matches the search hit.
+        var local = _services.ImageService.Images
+            .Select(i => i.Reference)
+            .FirstOrDefault(r =>
+                r.Contains(name, StringComparison.OrdinalIgnoreCase)
+                || r.Contains(name.Split('/').Last(), StringComparison.OrdinalIgnoreCase));
+        var imageRef = local ?? name;
+
+        var run = new RunContainerDialog(_services, imageRef) { XamlRoot = XamlRoot };
+        await run.ShowAsync();
+    }
+
     private void PerformSearch(string query)
     {
         _searchCts?.Cancel();
@@ -198,7 +215,7 @@ public sealed partial class ImageSearchDialog : ContentDialog
 
         var cts = new System.Threading.CancellationTokenSource();
         _searchCts = cts;
-        _ = DebouncedSearchAsync(query, cts.Token);
+        _ = DebouncedSearchAsync(query.Trim(), cts.Token);
     }
 
     private async Task DebouncedSearchAsync(string query, System.Threading.CancellationToken ct)

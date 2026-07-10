@@ -212,10 +212,16 @@ public sealed partial class StatsService : ObservableObject, IDisposable
 
             RecordSamples(containerResults.Concat(machineResults), cpuCounts);
 
-            ContainerStats = new ObservableCollection<ContainerStatsModel>(containerResults);
-            // Expose machine stats under the bare machine id for the machine UI to look up.
-            MachineStats = new ObservableCollection<ContainerStatsModel>(
-                machineResults.Select(s => s.With(s.Id[MachineKeyPrefix.Length..])));
+            // Mutate in place — replacing ObservableCollection every 2s forces every listener
+            // to treat the list as brand-new (dashboard/containers flicker).
+            var machineMapped = machineResults
+                .Select(s => s.With(s.Id[MachineKeyPrefix.Length..]))
+                .ToList();
+            ObservableCollectionSync.SyncByKey(ContainerStats, containerResults, s => s.Id);
+            ObservableCollectionSync.SyncByKey(MachineStats, machineMapped, s => s.Id);
+            // Always pulse once so consumers refresh derived samples/charts for this tick.
+            OnPropertyChanged(nameof(ContainerStats));
+            OnPropertyChanged(nameof(MachineStats));
 
             IsStatsLoading = false;
 

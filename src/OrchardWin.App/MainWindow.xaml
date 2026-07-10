@@ -33,6 +33,7 @@
                     CornerRadius="4"
                     Background="{ThemeResource AccentFillColorDefaultBrush}"
                     VerticalAlignment="Center">
+                <!-- SF Symbol equivalent: cube (Orchard container mark) -->
                 <FontIcon Glyph="&#xE7B8;" FontSize="12" Foreground="White"
                           HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
@@ -62,9 +63,11 @@
                         OpenPaneLength="236"
                         IsPaneToggleButtonVisible="True"
                         SelectionChanged="RootNav_SelectionChanged">
+            <!-- Glyphs map Orchard SF Symbols (TabSelection.icon) → Segoe Fluent; see AppIcons.cs -->
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="NavDashboard" Content="Dashboard" Tag="dashboard">
                     <NavigationViewItem.Icon>
+                        <!-- SF: gauge.with.dots.needle.bottom.50percent -->
                         <FontIcon Glyph="&#xE9D9;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
@@ -72,6 +75,7 @@
                 <NavigationViewItemHeader Content="Compute" />
                 <NavigationViewItem x:Name="NavContainers" Content="Containers" Tag="containers">
                     <NavigationViewItem.Icon>
+                        <!-- SF: cube -->
                         <FontIcon Glyph="&#xE7B8;" />
                     </NavigationViewItem.Icon>
                     <NavigationViewItem.InfoBadge>
@@ -80,6 +84,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="NavMachines" Content="Machines" Tag="machines">
                     <NavigationViewItem.Icon>
+                        <!-- SF: cpu -->
                         <FontIcon Glyph="&#xE950;" />
                     </NavigationViewItem.Icon>
                     <NavigationViewItem.InfoBadge>
@@ -88,6 +93,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="NavSandboxes" Content="Sandboxes" Tag="sandboxes">
                     <NavigationViewItem.Icon>
+                        <!-- SF: shield.lefthalf.filled -->
                         <FontIcon Glyph="&#xE72E;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
@@ -95,7 +101,8 @@
                 <NavigationViewItemHeader Content="Resources" />
                 <NavigationViewItem x:Name="NavModels" Content="AI Models" Tag="models">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE99A;" />
+                        <!-- SF: sparkles -->
+                        <FontIcon Glyph="&#xE113;" />
                     </NavigationViewItem.Icon>
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="ModelsBadge" Visibility="Collapsed" />
@@ -103,22 +110,34 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="NavImages" Content="Images" Tag="images">
                     <NavigationViewItem.Icon>
+                        <!-- SF: cube.transparent -->
                         <FontIcon Glyph="&#xE81E;" />
                     </NavigationViewItem.Icon>
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="ImagesBadge" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="NavMounts" Content="Mounts" Tag="mounts">
+                    <NavigationViewItem.Icon>
+                        <!-- SF: externaldrive -->
+                        <FontIcon Glyph="&#xE8B7;" />
+                    </NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="MountsBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                </NavigationViewItem>
 
                 <NavigationViewItemHeader Content="Networking" />
                 <NavigationViewItem x:Name="NavDns" Content="DNS" Tag="dns">
                     <NavigationViewItem.Icon>
+                        <!-- SF: network -->
                         <FontIcon Glyph="&#xE968;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="NavNetworks" Content="Networks" Tag="networks">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE968;" />
+                        <!-- SF: arrow.down.left.arrow.up.right -->
+                        <FontIcon Glyph="&#xE8CB;" />
                     </NavigationViewItem.Icon>
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="NetworksBadge" Visibility="Collapsed" />
@@ -128,6 +147,7 @@
                 <NavigationViewItemHeader Content="Observability" />
                 <NavigationViewItem x:Name="NavLogs" Content="Logs" Tag="logs">
                     <NavigationViewItem.Icon>
+                        <!-- SF: doc.text.below.ecg -->
                         <FontIcon Glyph="&#xE7C3;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>

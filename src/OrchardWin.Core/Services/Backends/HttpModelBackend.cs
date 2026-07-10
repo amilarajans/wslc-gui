@@ -1,77 +1,114 @@
+using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using OrchardWin.Core.Models;
 
 namespace OrchardWin.Core.Services.Backends;
 
-/// <see cref="IModelBackend"/> that discovers providers by probing their conventional
-/// loopback ports over HTTP. An unreachable port simply means "that provider isn't
-/// running." Ported from Orchard's `LiveModelBackend` - candidate list, probe-concurrently
-/// pattern, and chat-completion request/response shapes carried over verbatim, except the
-/// two `mlxServer` candidates (ports 8080/8000) are dropped entirely: MLX is an Apple
-/// Silicon-only inference framework with no Windows build, so there is nothing to probe for.
+/// Discovers local model providers by probing conventional loopback ports over HTTP.
+/// An unreachable port means "that provider isn't running."
 public sealed class HttpModelBackend : IModelBackend
 {
     private sealed record Candidate(ModelProviderKind Kind, ushort Port, ModelApiStyle Api, string ListPath);
 
-    // VERIFY: these are each provider's documented default port - Ollama's local server
-    // listens on 11434, LM Studio's on 1234 - both are user-configurable in their
-    // respective apps, so a provider moved off its default port will not be detected. This
-    // mirrors Orchard's own "conventional defaults" caveat on `LiveModelBackend.candidates`.
+    // Documented defaults: Ollama 11434, LM Studio 1234. User-changed ports are not probed.
     private static readonly Candidate[] Candidates =
     [
         new(ModelProviderKind.Ollama, 11434, ModelApiStyle.Ollama, "/api/tags"),
+        // Ollama also exposes an OpenAI-compatible listing (newer installs).
+        new(ModelProviderKind.Ollama, 11434, ModelApiStyle.OpenAI, "/v1/models"),
         new(ModelProviderKind.LmStudio, 1234, ModelApiStyle.OpenAI, "/v1/models"),
     ];
 
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1.5);
+    private static readonly string[] LoopbackHosts = ["127.0.0.1", "localhost"];
+
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan CompleteTimeout = TimeSpan.FromSeconds(120);
 
     private readonly HttpClient _http;
 
     public HttpModelBackend(HttpClient? http = null)
     {
-        _http = http ?? new HttpClient();
+        if (http is not null)
+        {
+            _http = http;
+            return;
+        }
+
+        // Bypass system proxy — corporate proxies often break loopback probes and make a
+        // running Ollama look "not detected".
+        var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+            ConnectTimeout = TimeSpan.FromSeconds(2),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+        };
+        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
     }
 
     public async Task<IReadOnlyList<ModelProvider>> DetectProvidersAsync(CancellationToken ct = default)
     {
-        var probes = Candidates.Select(candidate => ProbeAsync(candidate, ct)).ToArray();
+        // Dedupe by Kind+Port (we may probe the same port via multiple list paths).
+        var found = new Dictionary<string, ModelProvider>(StringComparer.Ordinal);
+        var probes = Candidates
+            .SelectMany(c => LoopbackHosts.Select(host => ProbeAsync(host, c, ct)))
+            .ToArray();
         var results = await Task.WhenAll(probes);
-        return results
-            .Where(provider => provider is not null)
-            .Select(provider => provider!)
-            .OrderBy(provider => provider.Id, StringComparer.Ordinal)
-            .ToList();
+        foreach (var provider in results)
+        {
+            if (provider is null) continue;
+            // Prefer result with more model names if we hit the same port twice.
+            if (!found.TryGetValue(provider.Id, out var existing)
+                || provider.Models.Count > existing.Models.Count)
+            {
+                found[provider.Id] = provider;
+            }
+        }
+
+        var list = found.Values.OrderBy(p => p.Id, StringComparer.Ordinal).ToList();
+        Log.Backend.Debug($"model detection: {list.Count} provider(s) — {string.Join(", ", list.Select(p => $"{p.Kind}:{p.Port}"))}");
+        return list;
     }
 
-    private async Task<ModelProvider?> ProbeAsync(Candidate candidate, CancellationToken ct)
+    private async Task<ModelProvider?> ProbeAsync(string host, Candidate candidate, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(ProbeTimeout);
+        var url = $"http://{host}:{candidate.Port}{candidate.ListPath}";
         try
         {
-            using var response = await _http.GetAsync($"http://127.0.0.1:{candidate.Port}{candidate.ListPath}", cts.Token);
-            if (!response.IsSuccessStatusCode) return null;
+            using var response = await _http.GetAsync(url, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                Log.Backend.Debug($"model probe {url} → HTTP {(int)response.StatusCode}");
+                return null;
+            }
 
             var body = await response.Content.ReadAsStringAsync(cts.Token);
+            var models = ParseModels(body, candidate.Api);
+            // /v1/models on Ollama maps to OpenAI style but we still label as Ollama.
             return new ModelProvider
             {
                 Kind = candidate.Kind,
                 Port = candidate.Port,
-                Api = candidate.Api,
-                Models = ParseModels(body, candidate.Api),
+                Api = candidate.Kind == ModelProviderKind.Ollama ? ModelApiStyle.Ollama : candidate.Api,
+                Models = models,
             };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // Our own short probe timeout tripped, not the caller's token - treat exactly
-            // like a connection failure: that provider just isn't running.
+            Log.Backend.Debug($"model probe {url} timed out");
             return null;
         }
         catch (HttpRequestException ex)
         {
-            Log.Backend.Debug($"model provider probe failed for {candidate.Kind} on {candidate.Port}: {ex.Message}");
+            Log.Backend.Debug($"model probe {url} failed: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Backend.Debug($"model probe {url} error: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }
@@ -136,7 +173,7 @@ public sealed class HttpModelBackend : IModelBackend
             {
                 responseBody = await response.Content.ReadAsStringAsync(ct);
             }
-            catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException && !ct.IsCancellationRequested)
+            catch (Exception ex) when (ex is IOException or HttpRequestException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
             {
                 throw OrchardWinException.Generic($"Could not read the model server's response: {ex.Message}");
             }
@@ -157,10 +194,6 @@ public sealed class HttpModelBackend : IModelBackend
         _ => role.ToString().ToLowerInvariant(),
     };
 
-    /// Extract the assistant's reply text from a chat-completion response. Both shapes are
-    /// flat JSON, so this is parsed dynamically (via <see cref="JsonDocument"/>) rather than
-    /// against a typed Models class - these are third-party wire shapes we don't own, unlike
-    /// wslc's own JSON that the Models types are attributed against.
     internal static string ParseCompletion(string json, ModelApiStyle api)
     {
         JsonDocument doc;
@@ -204,7 +237,6 @@ public sealed class HttpModelBackend : IModelBackend
         throw OrchardWinException.Generic("The model server returned an unexpected response shape.");
     }
 
-    /// Extract model ids from a provider's listing response. Both shapes are flat JSON.
     internal static List<string> ParseModels(string json, ModelApiStyle api)
     {
         try
@@ -214,7 +246,6 @@ public sealed class HttpModelBackend : IModelBackend
             switch (api)
             {
                 case ModelApiStyle.OpenAI:
-                    // { "data": [ { "id": "..." }, ... ] }
                     if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
                     {
                         return data.EnumerateArray()
@@ -224,12 +255,19 @@ public sealed class HttpModelBackend : IModelBackend
                     }
                     return [];
                 case ModelApiStyle.Ollama:
-                    // { "models": [ { "name": "..." }, ... ] }
                     if (root.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array)
                     {
                         return models.EnumerateArray()
-                            .Where(entry => entry.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
-                            .Select(entry => entry.GetProperty("name").GetString()!)
+                            .Select(entry =>
+                            {
+                                if (entry.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+                                    return name.GetString()!;
+                                if (entry.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.String)
+                                    return model.GetString()!;
+                                return null;
+                            })
+                            .Where(s => !string.IsNullOrEmpty(s))
+                            .Select(s => s!)
                             .ToList();
                     }
                     return [];

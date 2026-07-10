@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using OrchardWin.App.ViewModels;
 using OrchardWin.Core.Services;
 using OrchardWin.Core.Tests.Fakes;
@@ -30,7 +31,11 @@ public sealed class ContainersViewModelNavigationTests
         Assert.Equal(2, second.ContainerRows.Count);
         Assert.Contains(second.ContainerRows, r => r.PrimaryText == "web");
         Assert.Contains(second.ContainerRows, r => r.PrimaryText == "db");
-        // Rows must not require creating WinUI DependencyObjects (SolidColorBrush) off-thread.
-        Assert.All(second.ContainerRows, r => Assert.InRange(r.IconOpacity, 0.0, 1.0));
+        // Theme-brush visibility toggles only — no SolidColorBrush / DependencyObject from the VM.
+        Assert.All(second.ContainerRows, r =>
+        {
+            Assert.Equal(r.IsRunning ? Visibility.Visible : Visibility.Collapsed, r.RunningIconVisibility);
+            Assert.Equal(r.IsRunning ? Visibility.Collapsed : Visibility.Visible, r.StoppedIconVisibility);
+        });
     }
 }

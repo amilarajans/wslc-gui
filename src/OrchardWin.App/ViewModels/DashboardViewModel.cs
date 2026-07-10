@@ -141,13 +141,19 @@ public sealed partial class DashboardViewModel : ObservableObject
     private readonly SynchronizationContext? _ui;
     private int _refreshState;
 
-    [ObservableProperty] private ObservableCollection<UtilisationRow> _containerRows = [];
-    [ObservableProperty] private ObservableCollection<UtilisationRow> _machineRows = [];
+    /// Stable collections — SyncRows mutates in place (never replaced).
+    public ObservableCollection<UtilisationRow> ContainerRows { get; } = [];
+    public ObservableCollection<UtilisationRow> MachineRows { get; } = [];
+
     [ObservableProperty] private bool _statsUnavailable;
     [ObservableProperty] private SystemDiskUsage? _diskUsage;
     [ObservableProperty] private StatsWindow _selectedWindow = StatsWindow.FiveMin;
     [ObservableProperty] private SystemMetricsSnapshot _systemMetrics = new();
     [ObservableProperty] private string _emptyContainersMessage = "No running containers or stats unavailable";
+
+    /// Single pulse after system metrics update so the page redraws charts once per sample,
+    /// not once per nested SystemMetrics property change (which caused chart flicker).
+    [ObservableProperty] private int _metricsRevision;
 
     public DashboardViewModel(AppServices services)
     {
@@ -314,6 +320,7 @@ public sealed partial class DashboardViewModel : ObservableObject
             SystemMetrics.NetworkTxSeries = Array.Empty<double>();
             SystemMetrics.DiskReadSeries = Array.Empty<double>();
             SystemMetrics.DiskWriteSeries = Array.Empty<double>();
+            MetricsRevision++;
             return;
         }
 
@@ -340,6 +347,7 @@ public sealed partial class DashboardViewModel : ObservableObject
         SystemMetrics.NetworkTxSeries = aggregate.Select(s => s.NetworkTxPerSec / 1_048_576).ToList();
         SystemMetrics.DiskReadSeries = aggregate.Select(s => s.BlockReadPerSec / 1024).ToList();
         SystemMetrics.DiskWriteSeries = aggregate.Select(s => s.BlockWritePerSec / 1024).ToList();
+        MetricsRevision++;
     }
 
     private static (

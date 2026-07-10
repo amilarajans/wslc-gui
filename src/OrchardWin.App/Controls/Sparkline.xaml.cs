@@ -2,7 +2,6 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.Foundation;
 using Windows.UI;
 
 namespace OrchardWin.App.Controls;
@@ -26,7 +25,7 @@ public sealed partial class Sparkline : UserControl
 
     public static readonly DependencyProperty StrokeColorProperty = DependencyProperty.Register(
         nameof(StrokeColor), typeof(Color), typeof(Sparkline),
-        new PropertyMetadata(Colors.DodgerBlue, (d, e) => ((Sparkline)d).Line.Stroke = new SolidColorBrush((Color)e.NewValue)));
+        new PropertyMetadata(Colors.DodgerBlue, (d, _) => ((Sparkline)d).Redraw()));
 
     public Color StrokeColor
     {
@@ -47,7 +46,6 @@ public sealed partial class Sparkline : UserControl
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        // Ignore zero-size intermediate layout passes that would clear the polyline and flash.
         if (e.NewSize.Width <= 0 || e.NewSize.Height <= 0) return;
         Redraw();
     }
@@ -59,29 +57,36 @@ public sealed partial class Sparkline : UserControl
         var height = RootGrid.ActualHeight;
         if (values is null || values.Count < 2 || width <= 0 || height <= 0)
         {
-            // Keep previous geometry when layout is momentarily zero-sized (avoids flicker).
             if (width <= 0 || height <= 0) return;
-            Line.Points = [];
+            Line.Data = null;
+            Glow.Data = null;
             return;
         }
 
+        var softened = ChartPathBuilder.SoftenSeries(values, 0.5);
         var max = MaxValue > 0 ? MaxValue : 0.0001;
         if (MaxValue <= 0)
         {
-            for (var i = 0; i < values.Count; i++)
-            {
-                if (values[i] > max) max = values[i];
-            }
+            foreach (var v in softened)
+                if (v > max) max = v;
+            if (max < 0.0001) max = 1;
         }
 
-        var points = new PointCollection();
-        var stepX = width / (values.Count - 1);
-        for (var i = 0; i < values.Count; i++)
-        {
-            var normalized = Math.Clamp(values[i] / max, 0, 1);
-            points.Add(new Point(i * stepX, height - normalized * height));
-        }
-        Line.Points = points;
+        var points = ChartPathBuilder.ToPoints(softened, width, height, max, padTop: 1, padBottom: 1);
+        var geo = ChartPathBuilder.BuildStrokeGeometry(points);
+
+        Glow.Data = geo;
+        Glow.Stroke = new SolidColorBrush(Color.FromArgb(50, StrokeColor.R, StrokeColor.G, StrokeColor.B));
+        Glow.StrokeThickness = 3.2;
+        Glow.StrokeLineJoin = PenLineJoin.Round;
+        Glow.StrokeStartLineCap = PenLineCap.Round;
+        Glow.StrokeEndLineCap = PenLineCap.Round;
+
+        Line.Data = geo;
         Line.Stroke = new SolidColorBrush(StrokeColor);
+        Line.StrokeThickness = 1.6;
+        Line.StrokeLineJoin = PenLineJoin.Round;
+        Line.StrokeStartLineCap = PenLineCap.Round;
+        Line.StrokeEndLineCap = PenLineCap.Round;
     }
 }

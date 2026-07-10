@@ -1,0 +1,24 @@
+<UserControl
+    x:Class="OrchardWin.App.Controls.ResourceRing"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    MinWidth="96" MinHeight="110">
+
+    <!-- Multi-segment ring gauge (Orchard MenuBar ResourceRing). -->
+    <Grid x:Name="Root" SizeChanged="OnSizeChanged">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Canvas x:Name="Plot" Grid.Row="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+        <TextBlock x:Name="CenterLabel" Grid.Row="0"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="16" FontWeight="SemiBold" />
+        <TextBlock x:Name="TitleLabel" Grid.Row="1" Text="CPU"
+                   HorizontalAlignment="Center" FontSize="11" FontWeight="SemiBold"
+                   Opacity="0.55" Margin="0,4,0,0" CharacterSpacing="40" />
+    </Grid>
+</UserControl>

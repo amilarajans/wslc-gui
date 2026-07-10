@@ -40,8 +40,32 @@
                             <ComboBox x:Name="NetworkCombo" MinWidth="220" />
                         </StackPanel>
 
+                        <!-- Lifetime: container lives only as long as its main process. -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Lifetime" FontWeight="SemiBold" FontSize="13" />
+                            <CheckBox x:Name="KeepRunningCheck"
+                                      Content="Keep running until I stop it from this app"
+                                      IsChecked="True"
+                                      Checked="OnKeepRunningChanged"
+                                      Unchecked="OnKeepRunningChanged" />
+                            <TextBlock x:Name="KeepRunningHint"
+                                       Opacity="0.6" FontSize="11" TextWrapping="Wrap"
+                                       Text="On by default. For shell-only images (alpine, busybox, …) we run sleep infinity so the container stays up until you press Stop. Server images (nginx, postgres, …) keep their normal entrypoint." />
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Command (optional)" FontWeight="SemiBold" FontSize="13" />
+                            <TextBox x:Name="CommandOverrideBox"
+                                     PlaceholderText="Leave empty to use image default — or e.g. sleep infinity, nginx -g 'daemon off;'"
+                                     FontFamily="Cascadia Mono,Consolas"
+                                     TextChanged="OnCommandOverrideChanged" />
+                            <TextBlock x:Name="CommandHint"
+                                       Opacity="0.55" FontSize="11" TextWrapping="Wrap"
+                                       Text="A container stops when this process exits. The GUI does not kill it on a timer." />
+                        </StackPanel>
+
                         <CheckBox x:Name="DetachedCheck" Content="Run in detached mode (background)" IsChecked="True" />
-                        <CheckBox x:Name="RemoveAfterStopCheck" Content="Remove container after it stops" />
+                        <CheckBox x:Name="RemoveAfterStopCheck" Content="Remove container after it stops (delete when process exits)" />
                     </StackPanel>
                 </ScrollViewer>
             </PivotItem>
@@ -102,10 +126,6 @@
                     <StackPanel Spacing="6">
                         <TextBlock Text="Working Directory" FontWeight="SemiBold" FontSize="13" />
                         <TextBox x:Name="WorkingDirBox" PlaceholderText="/path/in/container" />
-                    </StackPanel>
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="Command Override" FontWeight="SemiBold" FontSize="13" />
-                        <TextBox x:Name="CommandOverrideBox" PlaceholderText="command arg1 arg2" />
                     </StackPanel>
                 </StackPanel>
             </PivotItem>

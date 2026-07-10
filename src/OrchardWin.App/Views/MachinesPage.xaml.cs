@@ -35,7 +35,17 @@ public sealed partial class MachinesPage : Page
         base.OnNavigatedTo(e);
         _services = NavigationArgs.From(e.Parameter).Services;
         _viewModel = new MachinesViewModel(_services);
-        _viewModel.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(ApplyState);
+        MachinesListView.ItemsSource = _viewModel.MachineRows;
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            // MachineRows mutates in place — only reapply chrome/detail, not full rebind storms.
+            if (e.PropertyName is null
+                or nameof(MachinesViewModel.MachineRows)
+                or nameof(MachinesViewModel.SelectedMachineId)
+                or nameof(MachinesViewModel.SelectedMachine)
+                or nameof(MachinesViewModel.Service))
+                DispatcherQueue.RunOnUi(ApplyState);
+        };
         ApplyState();
 
         _ = _viewModel.LoadAsync();
@@ -62,14 +72,15 @@ public sealed partial class MachinesPage : Page
         MachinesListView.Visibility = !service.ApiUnavailable && hasMachines
             ? Visibility.Visible : Visibility.Collapsed;
 
-        MachinesListView.ItemsSource = viewModel.MachineRows;
+        if (!ReferenceEquals(MachinesListView.ItemsSource, viewModel.MachineRows))
+            MachinesListView.ItemsSource = viewModel.MachineRows;
 
-        // WinUI's ListView doesn't retain SelectedItem across an ItemsSource content
-        // replacement (MachineRows is a freshly-built collection every refresh - see
-        // MachinesViewModel.RebuildRows), so restore the visual selection by id.
+        // Restore selection by id when the selected row instance was replaced in-place.
         if (viewModel.SelectedMachineId is { } id)
         {
-            MachinesListView.SelectedItem = viewModel.MachineRows.FirstOrDefault(r => r.Id == id);
+            var row = viewModel.MachineRows.FirstOrDefault(r => r.Id == id);
+            if (!ReferenceEquals(MachinesListView.SelectedItem, row))
+                MachinesListView.SelectedItem = row;
         }
     }
 

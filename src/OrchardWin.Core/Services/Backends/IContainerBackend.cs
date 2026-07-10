@@ -52,6 +52,11 @@ public interface IContainerBackend
     Task<IReadOnlyList<ContainerNetwork>> ListNetworksAsync(CancellationToken ct = default);
     Task CreateNetworkAsync(string name, string? subnet, Dictionary<string, string> labels, CancellationToken ct = default);
     Task DeleteNetworkAsync(string id, CancellationToken ct = default);
+
+    /// Network attachments for one container (from <c>container inspect</c> NetworkSettings).
+    /// Empty when the container has no networks or inspect fails.
+    Task<IReadOnlyList<ContainerNetworkAttachment>> ListContainerNetworkAttachmentsAsync(
+        string containerId, CancellationToken ct = default);
     Task<SystemHealthInfo> PingAsync(CancellationToken ct = default);
     Task<SystemDiskUsage> DiskUsageAsync(CancellationToken ct = default);
 }

@@ -45,6 +45,7 @@
                          TextChanged="OnSearchTextChanged" />
                 <Button Grid.Column="1" x:Name="RunButton" Click="OnRunClick"
                         ToolTipService.ToolTip="Run a new container" Padding="10,6">
+                    <!-- SF: plus -->
                     <FontIcon Glyph="&#xE710;" FontSize="14" />
                 </Button>
             </Grid>
@@ -79,14 +80,25 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <!-- Theme brushes + opacity only (no SolidColorBrush in ViewModel / off-UI-thread). -->
-                            <FontIcon Grid.Column="0" Glyph="&#xE7B8;" FontSize="14"
-                                      Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                      Opacity="{x:Bind IconOpacity}"
-                                      VerticalAlignment="Center" />
+                            <!-- SF: cube — green when running, secondary when stopped (Orchard ListContainers). -->
+                            <Grid Grid.Column="0" Width="20" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7B8;" FontSize="14"
+                                          Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                          Visibility="{x:Bind RunningIconVisibility}" />
+                                <FontIcon Glyph="&#xE7B8;" FontSize="14"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                          Visibility="{x:Bind StoppedIconVisibility}" />
+                            </Grid>
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="{x:Bind PrimaryText}" FontWeight="SemiBold" FontSize="13"
-                                           TextTrimming="CharacterEllipsis" />
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{x:Bind PrimaryText}" FontWeight="SemiBold" FontSize="13"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <!-- SF: shield.lefthalf.filled -->
+                                    <FontIcon Glyph="&#xE72E;" FontSize="11"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                              Visibility="{x:Bind SandboxBadgeVisibility}"
+                                              VerticalAlignment="Center" />
+                                </StackPanel>
                                 <TextBlock Text="{x:Bind SecondaryLeftText}" FontSize="11" Opacity="0.55"
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>
@@ -111,7 +123,8 @@
                      Canvas.ZIndex="10" />
 
             <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
-                <FontIcon Glyph="&#xE7B8;" FontSize="48" Opacity="0.35" HorizontalAlignment="Center" />
+                <!-- SF: cube.transparent -->
+                <FontIcon Glyph="&#xE81E;" FontSize="48" Opacity="0.35" HorizontalAlignment="Center" />
                 <TextBlock Text="Select a container" Opacity="0.55" HorizontalAlignment="Center" FontSize="14" />
             </StackPanel>
 

@@ -6,74 +6,151 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="using:OrchardWin.App.Views"
     mc:Ignorable="d"
-    Title="Search Container Images"
-    CloseButtonText="Close"
-    DefaultButton="Close"
-    MinWidth="900"
-    Width="900"
-    MinHeight="620">
+    Title=""
+    PrimaryButtonText=""
+    SecondaryButtonText=""
+    CloseButtonText=""
+    DefaultButton="None">
 
-    <Grid RowSpacing="12" Width="860">
+    <!-- Orchard ImageSearchView is fixed 920×600 with a 3×N result grid (280×140 cards).
+         WinUI ContentDialog defaults MaxWidth≈548 — override so the sheet matches. -->
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">980</x:Double>
+        <x:Double x:Key="ContentDialogMinWidth">920</x:Double>
+        <x:Double x:Key="ContentDialogMaxHeight">680</x:Double>
+        <x:Double x:Key="ContentDialogMinHeight">600</x:Double>
+        <Thickness x:Key="ContentDialogPadding">0</Thickness>
+    </ContentDialog.Resources>
+
+    <Grid Width="920" Height="600" RowSpacing="0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="380" />
+            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Search Docker Hub for container images to download"
-                   Opacity="0.7" FontSize="12" />
+        <!-- Header -->
+        <Border Grid.Row="0" Padding="20,16,16,16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1">
+            <StackPanel Spacing="14">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Glyph="&#xE721;" FontSize="22" Opacity="0.65"
+                              VerticalAlignment="Top" Margin="0,2,0,0" />
+                    <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Text="Search Container Images" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="Search Docker Hub for container images to download"
+                                   FontSize="12" Opacity="0.55" />
+                    </StackPanel>
+                    <HyperlinkButton Grid.Column="2" Content="Close" Click="CloseButton_Click"
+                                     VerticalAlignment="Top" Padding="8,4" />
+                </Grid>
 
-        <!-- Search bar -->
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="QueryBox" Grid.Column="0"
-                     PlaceholderText="Search for images (e.g., nginx, postgres, alpine)..."
-                     TextChanged="QueryBox_TextChanged" KeyDown="QueryBox_KeyDown" />
-            <Button x:Name="SearchButton" Grid.Column="1" Content="Search" Click="SearchButton_Click"
-                    Style="{StaticResource AccentButtonStyle}" />
-        </Grid>
+                <!-- One search bar: icon + field + clear + Search (Orchard HStack overlay) -->
+                <Border CornerRadius="8" Padding="10,6"
+                        Background="{ThemeResource ControlFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Grid.Column="0" Glyph="&#xE721;" FontSize="14" Opacity="0.5"
+                                  VerticalAlignment="Center" />
+                        <TextBox x:Name="QueryBox" Grid.Column="1"
+                                 PlaceholderText="Search for images (e.g., nginx, postgres, alpine)..."
+                                 BorderThickness="0" Background="Transparent"
+                                 Padding="0,4"
+                                 TextChanged="QueryBox_TextChanged" KeyDown="QueryBox_KeyDown" />
+                        <Button x:Name="ClearQueryButton" Grid.Column="2" Padding="4"
+                                Visibility="Collapsed" Click="ClearQueryButton_Click"
+                                Background="Transparent" BorderThickness="0"
+                                ToolTipService.ToolTip="Clear"
+                                VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE711;" FontSize="12" Opacity="0.55" />
+                        </Button>
+                        <Button x:Name="SearchButton" Grid.Column="3" Content="Search"
+                                Click="SearchButton_Click" MinWidth="80" Padding="14,6"
+                                Style="{StaticResource AccentButtonStyle}"
+                                VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Border>
 
-        <!-- Results area: exactly one of these four states is visible at a time, mirroring
-             ImageSearchView.swift's emptySearchState/loadingState/searchResultsList/noResultsState
-             branch. -->
-        <Grid Grid.Row="2">
-            <StackPanel x:Name="QuickSearchPanel" Spacing="12" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="Find and download images from Docker Hub" Opacity="0.7"
-                           HorizontalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                    <TextBlock Text="Popular:" Opacity="0.6" VerticalAlignment="Center" />
-                    <Button Content="nginx" Tag="nginx" Click="QuickSearch_Click" />
-                    <Button Content="postgres" Tag="postgres" Click="QuickSearch_Click" />
-                    <Button Content="redis" Tag="redis" Click="QuickSearch_Click" />
-                    <Button Content="alpine" Tag="alpine" Click="QuickSearch_Click" />
+        <!-- Body -->
+        <Grid Grid.Row="1" Background="{ThemeResource LayerFillColorDefaultBrush}">
+
+            <!-- Empty state -->
+            <StackPanel x:Name="QuickSearchPanel" Spacing="18"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420">
+                <FontIcon Glyph="&#xE721;" FontSize="56" Opacity="0.28" HorizontalAlignment="Center" />
+                <StackPanel Spacing="6" HorizontalAlignment="Center">
+                    <TextBlock Text="Search for Container Images" FontSize="20" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Find and download images from Docker Hub" FontSize="13" Opacity="0.55"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Spacing="10" HorizontalAlignment="Center">
+                    <TextBlock Text="Popular images to try:" FontSize="12" FontWeight="SemiBold"
+                               Opacity="0.55" HorizontalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <Button Content="nginx" Tag="nginx" Click="QuickSearch_Click" Padding="12,6" />
+                        <Button Content="postgres" Tag="postgres" Click="QuickSearch_Click" Padding="12,6" />
+                        <Button Content="redis" Tag="redis" Click="QuickSearch_Click" Padding="12,6" />
+                        <Button Content="alpine" Tag="alpine" Click="QuickSearch_Click" Padding="12,6" />
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
 
-            <StackPanel x:Name="SearchingPanel" Spacing="12" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Visibility="Collapsed">
-                <ProgressRing x:Name="SearchingRing" IsActive="False" Width="36" Height="36" HorizontalAlignment="Center" />
-                <TextBlock Text="Searching for images..." Opacity="0.7" />
+            <!-- Loading -->
+            <StackPanel x:Name="SearchingPanel" Spacing="14" HorizontalAlignment="Center"
+                        VerticalAlignment="Center" Visibility="Collapsed">
+                <ProgressRing x:Name="SearchingRing" IsActive="False" Width="40" Height="40"
+                              HorizontalAlignment="Center" />
+                <TextBlock Text="Searching for images..." Opacity="0.6" HorizontalAlignment="Center" />
             </StackPanel>
 
-            <TextBlock x:Name="NoResultsText" Text="No results found - try a different search term"
-                       Opacity="0.6" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+            <!-- No results -->
+            <StackPanel x:Name="NoResultsPanel" Spacing="14" HorizontalAlignment="Center"
+                        VerticalAlignment="Center" Visibility="Collapsed">
+                <FontIcon Glyph="&#xE9CE;" FontSize="48" Opacity="0.3" HorizontalAlignment="Center" />
+                <TextBlock Text="No results found" FontSize="18" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Try a different search term" Opacity="0.55"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
 
-            <ScrollViewer x:Name="ResultsScroller" Visibility="Collapsed">
-                <GridView x:Name="ResultsGrid" SelectionMode="None" IsItemClickEnabled="False">
-                    <GridView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="3" />
-                        </ItemsPanelTemplate>
-                    </GridView.ItemsPanel>
-                    <GridView.ItemTemplate>
+            <!-- Results: fixed 3-column grid of 280×140 cards (Orchard LazyVGrid) -->
+            <ScrollViewer x:Name="ResultsScroller" Visibility="Collapsed"
+                          Padding="20,16" HorizontalScrollMode="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <ItemsRepeater x:Name="ResultsRepeater" HorizontalAlignment="Left">
+                    <ItemsRepeater.Layout>
+                        <UniformGridLayout MaximumRowsOrColumns="3"
+                                           Orientation="Horizontal"
+                                           MinItemWidth="280"
+                                           MinItemHeight="140"
+                                           MinColumnSpacing="16"
+                                           MinRowSpacing="16"
+                                           ItemsStretch="None"
+                                           ItemsJustification="Start" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
                         <DataTemplate x:DataType="local:SearchResultRow">
-                            <Border Width="270" Height="150" Padding="12" CornerRadius="6" Margin="4"
+                            <Border Width="280" Height="140" Padding="10" CornerRadius="8"
                                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
                                 <Grid RowSpacing="6">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
@@ -81,63 +158,105 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="{x:Bind BadgeGlyph}" FontSize="16" Foreground="{x:Bind BadgeColor}" />
-                                        <StackPanel Spacing="0">
-                                            <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" FontSize="13"
-                                                       TextTrimming="CharacterEllipsis" MaxWidth="190" />
-                                            <TextBlock Text="{x:Bind MetaText}" FontSize="10" Opacity="0.7" />
+                                    <!-- checkmark.seal / cube.transparent + name + Official + stars -->
+                                    <Grid Grid.Row="0" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0" Glyph="{x:Bind BadgeGlyph}" FontSize="18"
+                                                  Foreground="{x:Bind BadgeColor}" VerticalAlignment="Top"
+                                                  Margin="0,1,0,0" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold"
+                                                       FontSize="14" TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Border Background="#FF3B82F6" CornerRadius="2" Padding="4,1"
+                                                        Visibility="{x:Bind OfficialVisibility}">
+                                                    <TextBlock Text="Official" FontSize="9" FontWeight="SemiBold"
+                                                               Foreground="White" />
+                                                </Border>
+                                                <StackPanel Orientation="Horizontal" Spacing="2"
+                                                            Visibility="{x:Bind StarsVisibility}"
+                                                            VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE735;" FontSize="9" Foreground="#FFF59E0B" />
+                                                    <TextBlock Text="{x:Bind StarsText}" FontSize="9"
+                                                               Foreground="#FFF59E0B" />
+                                                </StackPanel>
+                                            </StackPanel>
                                         </StackPanel>
-                                    </StackPanel>
+                                    </Grid>
 
-                                    <TextBlock Grid.Row="1" Text="{x:Bind Description}" FontSize="11" Opacity="0.75"
-                                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="3" />
+                                    <TextBlock Grid.Row="1" Text="{x:Bind Description}" FontSize="11"
+                                               Opacity="0.65" TextWrapping="Wrap"
+                                               TextTrimming="CharacterEllipsis" MaxLines="3"
+                                               VerticalAlignment="Top" />
 
-                                    <Grid Grid.Row="2">
-                                        <ProgressRing IsActive="{x:Bind IsPulling}" Visibility="{x:Bind IsPulling}"
-                                                      Width="22" Height="22" HorizontalAlignment="Center" />
+                                    <Grid Grid.Row="2" Height="28">
+                                        <ProgressRing IsActive="{x:Bind IsPulling}"
+                                                      Visibility="{x:Bind PullingVisibility}"
+                                                      Width="20" Height="20"
+                                                      HorizontalAlignment="Center" />
                                         <Button Content="Pull" Tag="{x:Bind Name}" Click="PullButton_Click"
-                                                HorizontalAlignment="Stretch" Visibility="{x:Bind ShowPullButton}"
-                                                Style="{StaticResource AccentButtonStyle}" />
-                                        <Button Content="Already downloaded" IsEnabled="False"
-                                                HorizontalAlignment="Stretch" Visibility="{x:Bind IsAlreadyPulled}" />
+                                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                Padding="0" FontSize="11" FontWeight="SemiBold"
+                                                Visibility="{x:Bind PullVisibility}"
+                                                Background="#FF2563EB" Foreground="White"
+                                                BorderThickness="0" CornerRadius="4" />
+                                        <Button Content="Run" Tag="{x:Bind Name}" Click="RunButton_Click"
+                                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                Padding="0" FontSize="11" FontWeight="SemiBold"
+                                                Visibility="{x:Bind RunVisibility}"
+                                                Background="#FF16A34A" Foreground="White"
+                                                BorderThickness="0" CornerRadius="4" />
                                     </Grid>
                                 </Grid>
                             </Border>
                         </DataTemplate>
-                    </GridView.ItemTemplate>
-                </GridView>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
             </ScrollViewer>
         </Grid>
 
-        <!-- Active downloads, mirrors ImageSearchView.swift's activePullsSection -->
-        <StackPanel x:Name="ActivePullsPanel" Grid.Row="3" Spacing="8" Visibility="Collapsed">
-            <TextBlock Text="Active Downloads" FontWeight="SemiBold" Opacity="0.8" />
-            <ItemsControl x:Name="ActivePullsList">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="local:PullProgressDisplay">
-                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6"
-                                Padding="10" Margin="0,0,0,6">
-                            <StackPanel Spacing="6">
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <FontIcon Grid.Column="0" Glyph="{x:Bind StatusGlyph}" Foreground="{x:Bind StatusColor}" />
-                                    <StackPanel Grid.Column="1" Spacing="0">
-                                        <TextBlock Text="{x:Bind ImageName}" FontWeight="Medium" FontSize="13" />
-                                        <TextBlock Text="{x:Bind Message}" FontSize="11" Opacity="0.7" />
-                                    </StackPanel>
-                                    <ProgressRing Grid.Column="2" IsActive="{x:Bind IsPulling}" Width="16" Height="16" />
-                                </Grid>
-                                <ProgressBar Value="{x:Bind ProgressPercent}" Maximum="100" Visibility="{x:Bind IsPulling}" />
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </StackPanel>
+        <!-- Active downloads -->
+        <Border x:Name="ActivePullsPanel" Grid.Row="2" Visibility="Collapsed"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                Padding="16,12">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Active Downloads" FontWeight="SemiBold" Opacity="0.7" />
+                <ItemsControl x:Name="ActivePullsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:PullProgressDisplay">
+                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                    CornerRadius="6" Padding="10" Margin="0,0,0,6"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <StackPanel Spacing="6">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0" Glyph="{x:Bind StatusGlyph}"
+                                                  Foreground="{x:Bind StatusColor}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="0">
+                                            <TextBlock Text="{x:Bind ImageName}" FontWeight="Medium" FontSize="13" />
+                                            <TextBlock Text="{x:Bind Message}" FontSize="11" Opacity="0.65" />
+                                        </StackPanel>
+                                        <ProgressRing Grid.Column="2" IsActive="{x:Bind IsPulling}"
+                                                      Width="16" Height="16" />
+                                    </Grid>
+                                    <ProgressBar Value="{x:Bind ProgressPercent}" Maximum="100"
+                                                 Visibility="{x:Bind PullingVisibility}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
     </Grid>
 </ContentDialog>

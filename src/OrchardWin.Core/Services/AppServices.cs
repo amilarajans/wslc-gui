@@ -22,6 +22,9 @@ public sealed class AppServices : IDisposable
     public ModelService ModelService { get; }
     public ModelServerService ModelServerService { get; }
 
+    /// Shared wslc-backed container API (lists, inspect attachments, create, …).
+    public IContainerBackend ContainerBackend { get; }
+
     /// The services for app launch: the live backend, wired the same way every time. Orchard
     /// has a DEBUG/UITest branch here that swaps in an in-memory stub backend for its XCUITest
     /// smoke suite; there is no equivalent Windows UI-test harness yet, so that branch isn't
@@ -57,6 +60,7 @@ public sealed class AppServices : IDisposable
         // here rather than silently left for someone to puzzle out later.
         var wslcPath = Settings.SafeContainerBinaryPath();
         var containerBackend = backend ?? new WslcCliContainerBackend(commandRunner, wslcPath);
+        ContainerBackend = containerBackend;
 
         var builderService = new BuilderService(commandRunner, Settings, AlertCenter);
         BuilderService = builderService;

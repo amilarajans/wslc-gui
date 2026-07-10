@@ -4,173 +4,197 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:controls="using:OrchardWin.App.Controls"
     xmlns:vm="using:OrchardWin.App.ViewModels"
-    xmlns:local="using:OrchardWin.App.Views"
     mc:Ignorable="d">
 
-    <Grid Padding="20" RowSpacing="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <Page.Resources>
+        <Style x:Key="DetailCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+    </Page.Resources>
 
-        <TextBlock Grid.Row="0" Text="Images" FontSize="24" FontWeight="SemiBold" />
+    <!-- Orchard Images: list | detail (header + Overview/Technical + Configuration + Used By). -->
+    <Grid ColumnSpacing="0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" MinWidth="240" />
+            <ColumnDefinition Width="1" />
+            <ColumnDefinition Width="*" MinWidth="420" />
+        </Grid.ColumnDefinitions>
 
-        <!-- Toolbar: local filter, sort, Docker Hub search, refresh -->
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+        <!-- LIST PANE -->
+        <Grid Grid.Column="0" Padding="12,12,8,12" RowSpacing="8"
+              Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-            <TextBox x:Name="SearchBox" Grid.Column="0" PlaceholderText="Filter images by reference..."
-                     TextChanged="SearchBox_TextChanged" />
+            <Grid Grid.Row="0" ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchBox" Grid.Column="0"
+                         PlaceholderText="Search images"
+                         TextChanged="SearchBox_TextChanged" />
+                <ToggleButton x:Name="InUseFilterButton" Grid.Column="1" Padding="8,6"
+                              ToolTipService.ToolTip="Show only images in use"
+                              Click="InUseFilterButton_Click">
+                    <FontIcon Glyph="&#xE71C;" FontSize="14" />
+                </ToggleButton>
+                <Button Grid.Column="2" Padding="8,6" Click="SortDirectionButton_Click"
+                        ToolTipService.ToolTip="Toggle sort direction">
+                    <FontIcon x:Name="SortDirectionGlyph" Glyph="&#xE74A;" FontSize="14" />
+                </Button>
+                <Button Grid.Column="3" Padding="8,6" Click="SearchDockerHubButton_Click"
+                        ToolTipService.ToolTip="Search Docker Hub / pull image">
+                    <!-- SF: plus -->
+                    <FontIcon Glyph="&#xE710;" FontSize="14" />
+                </Button>
+            </Grid>
 
-            <ComboBox x:Name="SortCombo" Grid.Column="1" Width="120"
-                      SelectionChanged="SortCombo_SelectionChanged">
-                <ComboBoxItem Content="Name" Tag="Name" />
-                <ComboBoxItem Content="Tag" Tag="Tag" />
-                <ComboBoxItem Content="Size" Tag="Size" />
-            </ComboBox>
-
-            <Button x:Name="SortDirectionButton" Grid.Column="2" Click="SortDirectionButton_Click"
-                    ToolTipService.ToolTip="Toggle sort direction">
-                <FontIcon x:Name="SortDirectionGlyph" Glyph="&#xE74A;" FontSize="14" />
-            </Button>
-
-            <Button x:Name="SearchDockerHubButton" Grid.Column="3" Click="SearchDockerHubButton_Click">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE721;" FontSize="14" />
-                    <TextBlock Text="Search Docker Hub" />
-                </StackPanel>
-            </Button>
-
-            <Button x:Name="RefreshButton" Grid.Column="4" Click="RefreshButton_Click"
-                    ToolTipService.ToolTip="Refresh">
-                <FontIcon Glyph="&#xE72C;" FontSize="14" />
-            </Button>
-        </Grid>
-
-        <!-- Two-pane: list | detail -->
-        <Grid Grid.Row="2" ColumnSpacing="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="340" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0">
-                <ListView x:Name="ImagesListView" SelectionMode="Single"
+            <Grid Grid.Row="1">
+                <ListView x:Name="ImagesListView"
+                          SelectionMode="Single"
                           SelectionChanged="ImagesListView_SelectionChanged">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="8,8" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Margin" Value="0,1" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:ImageRow">
-                            <controls:ListItemRow Icon="&#xE91B;"
-                                                   IconColor="{x:Bind IconColor}"
-                                                   PrimaryText="{x:Bind Name}"
-                                                   SecondaryLeftText="{x:Bind Tag}"
-                                                   SecondaryRightText="{x:Bind SizeText}">
-                                <controls:ListItemRow.ContextFlyout>
-                                    <MenuFlyout>
-                                        <MenuFlyoutItem Text="Copy Image Reference" Click="OnCopyReferenceClick" />
-                                        <MenuFlyoutSeparator />
-                                        <MenuFlyoutItem Text="Remove Image" Click="OnRemoveImageClick" />
-                                    </MenuFlyout>
-                                </controls:ListItemRow.ContextFlyout>
-                            </controls:ListItemRow>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <!-- SF: cube.transparent — green when used by a running container -->
+                                <Grid Grid.Column="0" Width="20" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE81E;" FontSize="14"
+                                              Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                              Visibility="{x:Bind RunningIconVisibility}" />
+                                    <FontIcon Glyph="&#xE81E;" FontSize="14"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                              Visibility="{x:Bind IdleIconVisibility}" />
+                                </Grid>
+                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" FontSize="13"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind Tag}" FontSize="11" Opacity="0.55"
+                                               TextTrimming="CharacterEllipsis"
+                                               FontFamily="Cascadia Mono,Consolas" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="{x:Bind SizeText}" FontSize="11"
+                                           Opacity="0.5" VerticalAlignment="Center"
+                                           FontFamily="Cascadia Mono,Consolas" />
+                            </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
+                    <ListView.ContextFlyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="Copy Image Reference" Click="OnCopyReferenceClick" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Remove Image" Click="OnRemoveImageClick" />
+                        </MenuFlyout>
+                    </ListView.ContextFlyout>
                 </ListView>
 
                 <ProgressRing x:Name="ImagesLoadingRing" IsActive="False" Width="28" Height="28"
-                              HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" />
+                              HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0" />
             </Grid>
+        </Grid>
 
-            <Border Grid.Column="1" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}"
-                    Margin="12,0" />
+        <Border Grid.Column="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-            <Grid Grid.Column="2">
-                <TextBlock x:Name="NoSelectionText" Text="Select an image to view its details"
-                           Opacity="0.6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <!-- DETAIL PANE -->
+        <Grid Grid.Column="2">
+            <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                <FontIcon Glyph="&#xE81E;" FontSize="48" Opacity="0.35" HorizontalAlignment="Center" />
+                <TextBlock Text="Select an image" Opacity="0.55" HorizontalAlignment="Center" FontSize="14" />
+            </StackPanel>
 
-                <ScrollViewer x:Name="DetailScroller" Visibility="Collapsed">
-                    <StackPanel Spacing="16" Padding="4,0,4,20">
-                        <!-- Header: name + Launch/Delete actions, mirrors ImageDetailHeader.swift -->
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Spacing="2">
-                                <TextBlock x:Name="DetailNameText" FontSize="20" FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis" />
-                                <TextBlock x:Name="DetailReferenceText" Opacity="0.6" FontSize="12"
-                                           TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="RunButton" Content="Launch image" Click="RunButton_Click" />
-                                <Button x:Name="DeleteButton" Content="Delete" Click="DeleteButton_Click"
-                                        Background="{ThemeResource SystemFillColorCriticalBrush}" />
-                            </StackPanel>
-                        </Grid>
+            <Grid x:Name="DetailRoot" Visibility="Collapsed" RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                        <ProgressRing x:Name="InspectingRing" IsActive="False" HorizontalAlignment="Left"
-                                      Width="20" Height="20" />
+                <!-- Header: name + Launch / Delete (ImageDetailHeader) -->
+                <Grid Grid.Row="0" Padding="20,16,16,12" ColumnSpacing="12"
+                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                      BorderThickness="0,0,0,1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="DetailNameText" Grid.Column="0" FontSize="20" FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="RunButton" Content="Launch image" Click="RunButton_Click" />
+                        <Button x:Name="DeleteButton" Content="Delete" Click="DeleteButton_Click"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Background="{ThemeResource SystemFillColorCriticalBrush}" />
+                    </StackPanel>
+                </Grid>
 
+                <ScrollViewer Grid.Row="1" Padding="16,16,16,24">
+                    <StackPanel Spacing="16">
                         <InfoBar x:Name="InspectionErrorBar" Severity="Error" IsClosable="False" IsOpen="False" />
 
-                        <StackPanel x:Name="InspectionPanel" Spacing="16" Visibility="Collapsed">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Digest" Opacity="0.6" FontSize="12" />
-                                <TextBlock x:Name="DigestText" TextWrapping="Wrap" FontFamily="Cascadia Mono,Consolas" FontSize="12" />
-                            </StackPanel>
-
-                            <Grid ColumnSpacing="24">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="4">
-                                    <TextBlock Text="Media Type" Opacity="0.6" FontSize="12" />
-                                    <TextBlock x:Name="MediaTypeText" FontSize="13" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="4">
-                                    <TextBlock Text="Size" Opacity="0.6" FontSize="12" />
-                                    <TextBlock x:Name="InspectSizeText" FontSize="13" />
-                                </StackPanel>
-                            </Grid>
-
-                            <StackPanel Spacing="8">
-                                <TextBlock Text="Platform Variants" FontSize="14" FontWeight="SemiBold" />
-                                <ItemsControl x:Name="VariantsList">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="local:ImageVariantDisplay">
-                                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                                    CornerRadius="6" Padding="12" Margin="0,0,0,8">
-                                                <StackPanel Spacing="6">
-                                                    <TextBlock Text="{x:Bind Platform}" FontWeight="SemiBold" FontSize="13" />
-                                                    <TextBlock Text="{x:Bind SizeText}" Opacity="0.7" FontSize="12" />
-                                                    <TextBlock Text="{x:Bind EntrypointText}" FontSize="12"
-                                                               Visibility="{x:Bind HasEntrypoint}" TextWrapping="Wrap" />
-                                                    <TextBlock Text="{x:Bind CmdText}" FontSize="12"
-                                                               Visibility="{x:Bind HasCmd}" TextWrapping="Wrap" />
-                                                    <TextBlock Text="{x:Bind WorkingDirText}" FontSize="12"
-                                                               Visibility="{x:Bind HasWorkingDir}" />
-                                                    <TextBlock Text="{x:Bind UserText}" FontSize="12"
-                                                               Visibility="{x:Bind HasUser}" />
-                                                    <TextBlock Text="{x:Bind EnvText}" FontSize="12"
-                                                               Visibility="{x:Bind HasEnv}" TextWrapping="Wrap" Opacity="0.8" />
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
+                        <StackPanel x:Name="InspectingPanel" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                            <ProgressRing x:Name="InspectingRing" IsActive="False" Width="18" Height="18" />
+                            <TextBlock Text="Inspecting image..." Opacity="0.6" VerticalAlignment="Center" FontSize="13" />
                         </StackPanel>
+
+                        <!-- Overview | Technical Details -->
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Style="{StaticResource DetailCardStyle}">
+                                <StackPanel x:Name="OverviewHost" Spacing="8" />
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource DetailCardStyle}">
+                                <StackPanel x:Name="TechnicalHost" Spacing="8" />
+                            </Border>
+                        </Grid>
+
+                        <!-- Configuration (from inspect variants) -->
+                        <StackPanel x:Name="ConfigurationHost" Spacing="12" />
+
+                        <!-- Used By Containers -->
+                        <Border Style="{StaticResource DetailCardStyle}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Used By Containers" FontSize="14" FontWeight="SemiBold" />
+                                <Grid x:Name="UsersHeader" ColumnSpacing="8" Padding="4,0,4,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Container" FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
+                                    <TextBlock Grid.Column="1" Text="IP Address" FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
+                                    <TextBlock Grid.Column="2" Text="Hostname" FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
+                                </Grid>
+                                <StackPanel x:Name="UsersHost" Spacing="0" />
+                                <TextBlock x:Name="UsersEmptyText"
+                                           Text="No containers are currently using this image"
+                                           Opacity="0.55" FontSize="13" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

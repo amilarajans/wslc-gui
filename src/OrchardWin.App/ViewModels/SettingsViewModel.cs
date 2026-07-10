@@ -19,8 +19,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 {
     public AppServices Services { get; }
 
-    [ObservableProperty]
-    private ObservableCollection<TerminalApp> _installedTerminals = [];
+    public ObservableCollection<TerminalApp> InstalledTerminals { get; } = [];
+    public ObservableCollection<DnsDomain> DnsDomains { get; } = [];
+    public ObservableCollection<SystemProperty> SystemProperties { get; } = [];
 
     [ObservableProperty]
     private TerminalApp _preferredTerminal;
@@ -32,13 +33,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _isUsingCustomBinary;
 
     [ObservableProperty]
-    private ObservableCollection<DnsDomain> _dnsDomains = [];
-
-    [ObservableProperty]
     private string? _selectedDefaultDomain;
-
-    [ObservableProperty]
-    private ObservableCollection<SystemProperty> _systemProperties = [];
 
     [ObservableProperty]
     private WslKernelInfo _kernelInfo = new();
@@ -55,7 +50,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Services.SystemService.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(SystemService.SystemProperties))
-                SystemProperties = new ObservableCollection<SystemProperty>(Services.SystemService.SystemProperties);
+                RefreshSystemProperties();
             if (e.PropertyName == nameof(SystemService.KernelInfo))
                 KernelInfo = Services.SystemService.KernelInfo;
         };
@@ -70,21 +65,34 @@ public sealed partial class SettingsViewModel : ObservableObject
         await Services.DnsService.LoadAsync();
         RefreshFromSettings();
         RefreshDnsDomains();
-        // Always re-copy after load (same tab-reentry hydration as Images/Containers).
-        SystemProperties = new ObservableCollection<SystemProperty>(Services.SystemService.SystemProperties);
+        RefreshSystemProperties();
         KernelInfo = Services.SystemService.KernelInfo;
     }
 
     private void RefreshFromSettings()
     {
-        InstalledTerminals = new ObservableCollection<TerminalApp>(Services.Settings.InstalledTerminals);
+        ObservableCollectionSync.Sync(InstalledTerminals, Services.Settings.InstalledTerminals.ToList(),
+            (a, b) => a == b);
+        OnPropertyChanged(nameof(InstalledTerminals));
         PreferredTerminal = Services.Settings.PreferredTerminal;
         ContainerBinaryPath = Services.Settings.ContainerBinaryPath;
         IsUsingCustomBinary = Services.Settings.IsUsingCustomBinary;
     }
 
-    private void RefreshDnsDomains() =>
-        DnsDomains = new ObservableCollection<DnsDomain>(Services.DnsService.DnsDomains);
+    private void RefreshDnsDomains()
+    {
+        ObservableCollectionSync.Sync(DnsDomains, Services.DnsService.DnsDomains.ToList(),
+            (a, b) => string.Equals(a.Domain, b.Domain, StringComparison.Ordinal) && a.IsDefault == b.IsDefault);
+        OnPropertyChanged(nameof(DnsDomains));
+    }
+
+    private void RefreshSystemProperties()
+    {
+        ObservableCollectionSync.Sync(SystemProperties, Services.SystemService.SystemProperties.ToList(),
+            (a, b) => string.Equals(a.Id, b.Id, StringComparison.Ordinal)
+                      && string.Equals(a.Value, b.Value, StringComparison.Ordinal));
+        OnPropertyChanged(nameof(SystemProperties));
+    }
 
     public void SetPreferredTerminal(TerminalApp app) => Services.Settings.SetPreferredTerminal(app);
 

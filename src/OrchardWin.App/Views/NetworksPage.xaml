@@ -4,68 +4,225 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:controls="using:OrchardWin.App.Controls"
     xmlns:vm="using:OrchardWin.App.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="20" RowSpacing="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <Page.Resources>
+        <Style x:Key="DetailCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+    </Page.Resources>
 
-        <Grid Grid.Row="0" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Networks" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <Button Grid.Column="1" Click="OnAddNetworkClick" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="6">
+    <!-- Orchard Networks: list (search +) | detail (header, properties, containers table). -->
+    <Grid ColumnSpacing="0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" MinWidth="240" />
+            <ColumnDefinition Width="1" />
+            <ColumnDefinition Width="*" MinWidth="420" />
+        </Grid.ColumnDefinitions>
+
+        <!-- LIST -->
+        <Grid Grid.Column="0" Padding="12,12,8,12" RowSpacing="8"
+              Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchBox" Grid.Column="0"
+                         PlaceholderText="Search networks"
+                         TextChanged="OnSearchTextChanged" />
+                <Button Grid.Column="1" Click="OnAddNetworkClick" Padding="10,6"
+                        ToolTipService.ToolTip="Add network">
                     <FontIcon Glyph="&#xE710;" FontSize="14" />
-                    <TextBlock Text="Add Network" />
+                </Button>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <StackPanel x:Name="LoadingPanel" Visibility="Collapsed"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                    <ProgressRing IsActive="True" Width="28" Height="28" />
+                    <TextBlock Text="Loading networks..." Opacity="0.55" FontSize="12" />
                 </StackPanel>
-            </Button>
+
+                <StackPanel x:Name="EmptyPanel" Visibility="Collapsed"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                    <FontIcon Glyph="&#xE8CB;" FontSize="36" Opacity="0.35" HorizontalAlignment="Center" />
+                    <TextBlock Text="No Networks" FontSize="15" FontWeight="SemiBold" Opacity="0.6"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Create a network to get started" FontSize="12" Opacity="0.5"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <ListView x:Name="NetworksList" Visibility="Collapsed" SelectionMode="Single"
+                          SelectionChanged="OnSelectionChanged">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="8,8" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Margin" Value="0,1" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:NetworkRow">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <!-- SF: arrow.down.left.arrow.up.right — green when containers running -->
+                                <Grid Grid.Column="0" Width="20" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE8CB;" FontSize="14"
+                                              Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                              Visibility="{x:Bind RunningIconVisibility}" />
+                                    <FontIcon Glyph="&#xE8CB;" FontSize="14"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                              Visibility="{x:Bind IdleIconVisibility}" />
+                                </Grid>
+                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold" FontSize="13"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind AddressText}" FontSize="11" Opacity="0.55"
+                                               FontFamily="Cascadia Mono,Consolas"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="{x:Bind ContainerCountText}" FontSize="11"
+                                           Opacity="0.5" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                    <ListView.ContextFlyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="Delete Network" Click="OnDeleteFromMenuClick" />
+                        </MenuFlyout>
+                    </ListView.ContextFlyout>
+                </ListView>
+            </Grid>
         </Grid>
 
-        <Grid Grid.Row="1">
-            <StackPanel x:Name="LoadingPanel" Visibility="Collapsed" HorizontalAlignment="Center"
-                        VerticalAlignment="Center" Spacing="8">
-                <ProgressRing IsActive="True" Width="32" Height="32" />
-                <TextBlock Text="Loading networks..." Opacity="0.6" FontSize="12" HorizontalAlignment="Center" />
+        <Border Grid.Column="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <!-- DETAIL -->
+        <Grid Grid.Column="2">
+            <StackPanel x:Name="EmptyDetail" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                <FontIcon Glyph="&#xE8CB;" FontSize="48" Opacity="0.3" HorizontalAlignment="Center" />
+                <TextBlock Text="Select a network" Opacity="0.55" HorizontalAlignment="Center" />
             </StackPanel>
 
-            <StackPanel x:Name="EmptyPanel" Visibility="Collapsed" HorizontalAlignment="Center"
-                        VerticalAlignment="Center" Spacing="8">
-                <FontIcon Glyph="&#xE839;" FontSize="32" Opacity="0.5" HorizontalAlignment="Center" />
-                <TextBlock Text="No Networks" FontSize="16" FontWeight="SemiBold" Opacity="0.6" HorizontalAlignment="Center" />
-                <TextBlock Text="Create a network to get started" FontSize="12" Opacity="0.6" HorizontalAlignment="Center" />
-            </StackPanel>
+            <Grid x:Name="DetailRoot" Visibility="Collapsed" RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-            <ListView x:Name="NetworksList" Visibility="Collapsed" SelectionMode="Single">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="vm:NetworkRow">
-                        <Grid>
-                            <Grid.ContextFlyout>
-                                <MenuFlyout>
-                                    <MenuFlyoutItem Text="Delete Network" Click="OnDeleteNetworkClick"
-                                                    Tag="{x:Bind Id}" IsEnabled="{x:Bind CanDelete}">
-                                        <MenuFlyoutItem.Icon>
-                                            <FontIcon Glyph="&#xE74D;" />
-                                        </MenuFlyoutItem.Icon>
-                                    </MenuFlyoutItem>
-                                </MenuFlyout>
-                            </Grid.ContextFlyout>
-                            <controls:ListItemRow
-                                Icon="&#xE839;"
-                                IconColor="{x:Bind IconColor}"
-                                PrimaryText="{x:Bind Id}"
-                                SecondaryLeftText="{x:Bind GatewayText}"
-                                SecondaryRightText="{x:Bind ContainerCountText}" />
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+                <!-- Header -->
+                <Grid Grid.Row="0" Padding="20,16,16,12" ColumnSpacing="12"
+                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                      BorderThickness="0,0,0,1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="DetailNameText" Grid.Column="0" FontSize="20" FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <Button x:Name="DeleteButton" Grid.Column="1" Content="Delete" Click="OnDeleteClick"
+                            Background="{ThemeResource SystemFillColorCriticalBrush}" />
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" Padding="16,16,16,24">
+                    <StackPanel Spacing="16">
+                        <!-- Property card -->
+                        <Border Style="{StaticResource DetailCardStyle}">
+                            <StackPanel>
+                                <Grid Padding="14,10" ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Network ID" Opacity="0.55" FontSize="13"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock x:Name="NetworkIdText" Grid.Column="1" FontSize="13"
+                                               FontFamily="Cascadia Mono,Consolas"
+                                               IsTextSelectionEnabled="True" />
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        Margin="14,0,0,0" />
+                                <Grid Padding="14,10" ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Address Range" Opacity="0.55" FontSize="13"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AddressRangeText" Grid.Column="1" FontSize="13"
+                                               FontFamily="Cascadia Mono,Consolas"
+                                               IsTextSelectionEnabled="True" />
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        Margin="14,0,0,0" />
+                                <Grid Padding="14,10" ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Gateway" Opacity="0.55" FontSize="13"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock x:Name="GatewayText" Grid.Column="1" FontSize="13"
+                                               FontFamily="Cascadia Mono,Consolas"
+                                               IsTextSelectionEnabled="True" />
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        Margin="14,0,0,0" />
+                                <Grid Padding="14,10" ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Labels" Opacity="0.55" FontSize="13"
+                                               VerticalAlignment="Top" Margin="0,2,0,0" />
+                                    <StackPanel x:Name="LabelsHost" Grid.Column="1"
+                                                Orientation="Horizontal" Spacing="6" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Containers using this network -->
+                        <Border Style="{StaticResource DetailCardStyle}" Padding="14">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Containers using this network" FontSize="14" FontWeight="SemiBold" />
+                                <Grid x:Name="UsersHeader" ColumnSpacing="8" Padding="4,0,4,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Container" FontSize="12"
+                                               FontWeight="SemiBold" Opacity="0.7" />
+                                    <TextBlock Grid.Column="1" Text="IP Address" FontSize="12"
+                                               FontWeight="SemiBold" Opacity="0.7" />
+                                    <TextBlock Grid.Column="2" Text="Hostname" FontSize="12"
+                                               FontWeight="SemiBold" Opacity="0.7" />
+                                </Grid>
+                                <StackPanel x:Name="UsersHost" Spacing="0" />
+                                <TextBlock x:Name="UsersEmptyText"
+                                           Text="No containers are connected to this network"
+                                           Opacity="0.55" FontSize="13" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
         </Grid>
     </Grid>
 </Page>

@@ -65,6 +65,7 @@ public sealed partial class RunContainerDialog : ContentDialog
         BridgeSection.Visibility = _services.ModelService.Providers.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ValidateName();
+        UpdateCommandHint();
     }
 
     // MARK: - Name validation
@@ -271,6 +272,33 @@ public sealed partial class RunContainerDialog : ContentDialog
         return grid;
     }
 
+    // MARK: - Lifetime hints
+
+    private void OnKeepRunningChanged(object sender, RoutedEventArgs e) => UpdateCommandHint();
+
+    private void OnCommandOverrideChanged(object sender, TextChangedEventArgs e) => UpdateCommandHint();
+
+    private void UpdateCommandHint()
+    {
+        var keep = KeepRunningCheck.IsChecked == true;
+        var hasCmd = !string.IsNullOrWhiteSpace(CommandOverrideBox.Text);
+        if (hasCmd)
+        {
+            CommandHint.Text = "Using your command. The container stays up only while that process runs.";
+        }
+        else if (keep)
+        {
+            CommandHint.Text =
+                "Keep-running is on: shell-only images (alpine, etc.) will use sleep infinity so " +
+                "the container stays up until you press Stop. Server images keep their normal entrypoint.";
+        }
+        else
+        {
+            CommandHint.Text =
+                "Keep-running is off: the image's default process is used. If it exits, the container stops.";
+        }
+    }
+
     // MARK: - Submit
 
     private async void OnPrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -284,6 +312,7 @@ public sealed partial class RunContainerDialog : ContentDialog
                 Image = ImageBox.Text.Trim(),
                 Detached = DetachedCheck.IsChecked == true,
                 RemoveAfterStop = RemoveAfterStopCheck.IsChecked == true,
+                KeepRunningUntilStopped = KeepRunningCheck.IsChecked == true,
                 WorkingDirectory = WorkingDirBox.Text.Trim(),
                 CommandOverride = CommandOverrideBox.Text.Trim(),
                 DnsDomain = DnsDomainCombo.SelectedItem is DnsDomain { Domain: "None" } or null

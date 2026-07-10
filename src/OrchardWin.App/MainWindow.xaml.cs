@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
         ["dashboard"] = typeof(DashboardPage),
         ["containers"] = typeof(ContainersPage),
         ["images"] = typeof(ImagesPage),
+        ["mounts"] = typeof(MountsPage),
         ["machines"] = typeof(MachinesPage),
         ["networks"] = typeof(NetworksPage),
         ["dns"] = typeof(DnsPage),
@@ -116,12 +117,23 @@ public sealed partial class MainWindow : Window
     /// Used by Dashboard row clicks (Orchard's NavigateToContainer).
     public void NavigateTo(string tag, string? selectContainerId = null, string? selectMachineId = null)
     {
+        Log.Ui.Info($"NavigateTo tag={tag} selectContainer={selectContainerId ?? "-"} selectMachine={selectMachineId ?? "-"}");
+
         // Already on Containers: select without tearing down the page.
         if (tag == _currentTag && tag == "containers" && selectContainerId is not null
             && ContentFrame.Content is ContainersPage containersPage)
         {
             SelectNavItem(tag);
             containersPage.SelectContainer(selectContainerId);
+            return;
+        }
+
+        // Already on Logs: retarget without tearing down the page.
+        if (tag == _currentTag && tag == "logs" && selectContainerId is not null
+            && ContentFrame.Content is LogsPage logsPage)
+        {
+            SelectNavItem(tag);
+            logsPage.PreferContainer(selectContainerId);
             return;
         }
 
@@ -132,20 +144,39 @@ public sealed partial class MainWindow : Window
 
         _currentTag = tag;
         SelectNavItem(tag);
-        ContentFrame.Navigate(pageType, new NavigationArgs
+        try
         {
-            Services = _services,
-            SelectContainerId = selectContainerId,
-            SelectMachineId = selectMachineId,
-        });
+            ContentFrame.Navigate(pageType, new NavigationArgs
+            {
+                Services = _services,
+                SelectContainerId = selectContainerId,
+                SelectMachineId = selectMachineId,
+            });
+            Log.Ui.Info($"NavigateTo OK → {pageType.Name}");
+        }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("MainWindow.NavigateTo", ex, extra: $"tag={tag}");
+            throw;
+        }
     }
 
     private void Navigate(string tag)
     {
         if (tag == _currentTag) return;
         if (!Routes.TryGetValue(tag, out var pageType)) return;
+        Log.Ui.Info($"Navigate tag={tag} → {pageType.Name}");
         _currentTag = tag;
-        ContentFrame.Navigate(pageType, new NavigationArgs { Services = _services });
+        try
+        {
+            ContentFrame.Navigate(pageType, new NavigationArgs { Services = _services });
+            Log.Ui.Info($"Navigate OK → {pageType.Name}");
+        }
+        catch (Exception ex)
+        {
+            Log.WriteCrashReport("MainWindow.Navigate", ex, extra: $"tag={tag}");
+            throw;
+        }
     }
 
     private void SelectNavItem(string tag)
@@ -191,6 +222,7 @@ public sealed partial class MainWindow : Window
     {
         SetBadge(ContainersBadge, _services.ContainerListService.Containers.Count);
         SetBadge(ImagesBadge, _services.ImageService.Images.Count);
+        SetBadge(MountsBadge, _services.ContainerListService.AllMounts.Count);
         SetBadge(NetworksBadge, _services.NetworkService.Networks.Count);
         SetBadge(MachinesBadge, _services.MachineService.Machines.Count);
         SetBadge(ModelsBadge, _services.ModelService.Providers.Count);

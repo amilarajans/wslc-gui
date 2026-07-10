@@ -408,8 +408,19 @@ public sealed partial class ContainerListService : ObservableObject
         await using var stream = await _backend.ContainerLogsAsync(containerId, ct);
         using var reader = new StreamReader(stream);
         var fullText = await reader.ReadToEndAsync(ct);
-        var lines = fullText.Split('\n');
-        return lines.Length > tailLines ? lines[^tailLines..] : lines;
+        if (string.IsNullOrWhiteSpace(fullText))
+            return [];
+
+        var lines = fullText
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n')
+            .Select(l => l.TrimEnd('\r'))
+            .ToList();
+        // Drop a single trailing empty line from the final newline.
+        if (lines.Count > 0 && lines[^1].Length == 0)
+            lines.RemoveAt(lines.Count - 1);
+
+        return lines.Count > tailLines ? lines.TakeLast(tailLines).ToList() : lines;
     }
 
     public async Task RecreateContainerAsync(string oldContainerId, ContainerRunConfig newConfig, CancellationToken ct = default)
@@ -533,11 +544,7 @@ public sealed partial class ContainerListService : ObservableObject
                 }
             }
 
-            var commandArgs = new List<string>();
-            if (!string.IsNullOrEmpty(config.CommandOverride))
-            {
-                commandArgs = [.. config.CommandOverride.Split(' ', StringSplitOptions.RemoveEmptyEntries)];
-            }
+            var commandArgs = await ResolveRunCommandAsync(config, ct);
 
             var spec = new ContainerCreateSpec
             {
@@ -556,7 +563,25 @@ public sealed partial class ContainerListService : ObservableObject
             await _backend.CreateContainerAsync(spec, ct);
 
             RemoveRecoveryFailed(id);
-            FireAndForget(LoadAsync(ct: ct));
+            await LoadAsync(ct: ct);
+
+            // Detect immediate exit so users don't think the GUI killed the container.
+            await Task.Delay(TimeSpan.FromMilliseconds(800), ct);
+            await LoadAsync(showLoading: false, ct: ct);
+            var created = Containers.FirstOrDefault(c =>
+                string.Equals(c.Configuration.Id, id, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Configuration.Hostname, id, StringComparison.OrdinalIgnoreCase));
+            if (created is not null
+                && !string.Equals(created.Status, "running", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(created.Status, "created", StringComparison.OrdinalIgnoreCase))
+            {
+                _alertCenter.Error(
+                    $"Container '{id}' started then exited ({created.Status}). " +
+                    "The GUI did not stop it — the process inside finished. " +
+                    "Enable “Keep running until I stop it” or set a long-running Command " +
+                    "(e.g. sleep infinity), or use an image whose default process stays up.");
+            }
+
             return true;
         }
         catch (Exception error)
@@ -564,6 +589,86 @@ public sealed partial class ContainerListService : ObservableObject
             _alertCenter.Error($"Failed to run container: {error.Message}");
             return false;
         }
+    }
+
+    /// Resolve the argv to pass after the image name.
+    /// Explicit CommandOverride always wins. With KeepRunningUntilStopped and no command,
+    /// shell-only image defaults become <c>sleep infinity</c>.
+    private async Task<List<string>> ResolveRunCommandAsync(ContainerRunConfig config, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(config.CommandOverride))
+        {
+            return [.. config.CommandOverride.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        }
+
+        if (!config.KeepRunningUntilStopped)
+            return [];
+
+        try
+        {
+            var inspection = await _backend.InspectImageAsync(config.Image, ct);
+            var variant = inspection.Variants.FirstOrDefault();
+            if (LooksLikeShortLivedDefault(variant))
+            {
+                Log.Containers.Debug(
+                    $"Image '{config.Image}' has a short-lived default process; " +
+                    "using sleep infinity so it stays up until Stop.");
+                return ["sleep", "infinity"];
+            }
+        }
+        catch (Exception ex)
+        {
+            // If inspect fails, leave image default — user still gets the exit warning.
+            Log.Containers.Debug($"Could not inspect image for keep-alive decision: {ex.Message}");
+        }
+
+        return [];
+    }
+
+    /// Alpine/busybox default <c>/bin/sh</c>, bare shells, and finite <c>sleep N</c> exit soon.
+    /// Real services (nginx, postgres, …) return false.
+    internal static bool LooksLikeShortLivedDefault(ImageInspectionVariant? variant)
+    {
+        if (variant is null) return false;
+
+        var tokens = new List<string>();
+        if (variant.Entrypoint is { Count: > 0 } ep) tokens.AddRange(ep);
+        if (variant.Cmd is { Count: > 0 } cmd) tokens.AddRange(cmd);
+        if (tokens.Count == 0) return true; // no process config → treat as short-lived
+
+        static string BaseName(string path)
+        {
+            var s = path.Replace('\\', '/');
+            var i = s.LastIndexOf('/');
+            return (i >= 0 ? s[(i + 1)..] : s).ToLowerInvariant();
+        }
+
+        var head = BaseName(tokens[0]);
+        // Interactive shells with no long-running script.
+        if (head is "sh" or "bash" or "ash" or "dash" or "zsh" or "fish" or "busybox")
+        {
+            // busybox sleep 120 → long enough tokens; bare busybox/sh → short-lived
+            if (head == "busybox" && tokens.Count >= 2 && BaseName(tokens[1]) == "sleep")
+                return IsFiniteSleep(tokens.Skip(2).FirstOrDefault());
+            if (tokens.Count == 1) return true;
+            if (tokens.Count == 2 && tokens[1] is "-l" or "--login" or "-i") return true;
+            // sh -c "…" could be anything — leave alone
+            return false;
+        }
+
+        if (head == "sleep")
+            return IsFiniteSleep(tokens.ElementAtOrDefault(1));
+
+        return false;
+    }
+
+    private static bool IsFiniteSleep(string? duration)
+    {
+        if (string.IsNullOrWhiteSpace(duration)) return true;
+        if (duration.Equals("infinity", StringComparison.OrdinalIgnoreCase)) return false;
+        if (duration.Equals("inf", StringComparison.OrdinalIgnoreCase)) return false;
+        // Numeric or time-suffixed durations are finite.
+        return true;
     }
 
     private void AddLoading(string id)

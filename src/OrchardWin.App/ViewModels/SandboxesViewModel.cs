@@ -7,32 +7,18 @@ using Windows.UI;
 
 namespace OrchardWin.App.ViewModels;
 
-/// One row in either the "Wired by Orchard-Win" or "Detected" sandbox list: the raw sandbox's
-/// id plus the display-ready glyph/text/color the row needs. Same shape as ModelsViewModel's
-/// `ModelRow` - a thin per-row projection, not a re-implementation of `Sandbox`.
 public sealed record SandboxRow(string Id, string Icon, Color IconColor, string PrimaryText, string SecondaryText);
 
-/// Thin glue for the Sandboxes page: a sandbox is a *derived* view over the container list
-/// (via `SandboxDetection.DetectSandboxes`), not a service-owned collection, so this view
-/// model recomputes it whenever the containers or networks it depends on change - mirroring
-/// Swift's `sandboxes`/`managed`/`detected` computed properties in `SandboxesListView`.
 public sealed partial class SandboxesViewModel : ObservableObject
 {
     private readonly AppServices _services;
 
     public AppServices Services => _services;
 
-    [ObservableProperty]
-    private ObservableCollection<Sandbox> _managedSandboxes = [];
-
-    [ObservableProperty]
-    private ObservableCollection<Sandbox> _detectedSandboxes = [];
-
-    [ObservableProperty]
-    private ObservableCollection<SandboxRow> _managedRows = [];
-
-    [ObservableProperty]
-    private ObservableCollection<SandboxRow> _detectedRows = [];
+    public ObservableCollection<Sandbox> ManagedSandboxes { get; } = [];
+    public ObservableCollection<Sandbox> DetectedSandboxes { get; } = [];
+    public ObservableCollection<SandboxRow> ManagedRows { get; } = [];
+    public ObservableCollection<SandboxRow> DetectedRows { get; } = [];
 
     [ObservableProperty]
     private string? _selectedId;
@@ -43,8 +29,16 @@ public sealed partial class SandboxesViewModel : ObservableObject
     public SandboxesViewModel(AppServices services)
     {
         _services = services;
-        _services.ContainerListService.PropertyChanged += (_, _) => Refresh();
-        _services.NetworkService.PropertyChanged += (_, _) => Refresh();
+        _services.ContainerListService.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null or nameof(ContainerListService.Containers))
+                Refresh();
+        };
+        _services.NetworkService.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null or nameof(NetworkService.Networks))
+                Refresh();
+        };
         Refresh();
     }
 
@@ -52,6 +46,7 @@ public sealed partial class SandboxesViewModel : ObservableObject
     {
         await _services.ContainerListService.LoadAsync(showLoading);
         await _services.NetworkService.LoadAsync(showLoading: false);
+        Refresh();
     }
 
     public Task RefreshQuietAsync() => LoadAsync(showLoading: false);
@@ -59,12 +54,29 @@ public sealed partial class SandboxesViewModel : ObservableObject
     private void Refresh()
     {
         var all = SandboxDetection.DetectSandboxes(_services.ContainerListService.Containers, _services.NetworkService.Networks);
-        ManagedSandboxes = new ObservableCollection<Sandbox>(all.Where(s => s.Source == SandboxSource.Managed));
-        DetectedSandboxes = new ObservableCollection<Sandbox>(all.Where(s => s.Source == SandboxSource.Detected));
-        ManagedRows = new ObservableCollection<SandboxRow>(ManagedSandboxes.Select(ToRow));
-        DetectedRows = new ObservableCollection<SandboxRow>(DetectedSandboxes.Select(ToRow));
+        var managed = all.Where(s => s.Source == SandboxSource.Managed).ToList();
+        var detected = all.Where(s => s.Source == SandboxSource.Detected).ToList();
+
+        ObservableCollectionSync.Sync(ManagedSandboxes, managed, (a, b) =>
+            string.Equals(a.Id, b.Id, StringComparison.Ordinal) && a.IsRunning == b.IsRunning);
+        ObservableCollectionSync.Sync(DetectedSandboxes, detected, (a, b) =>
+            string.Equals(a.Id, b.Id, StringComparison.Ordinal) && a.IsRunning == b.IsRunning);
+
+        var managedRows = managed.Select(ToRow).ToList();
+        var detectedRows = detected.Select(ToRow).ToList();
+
+        var mChanged = ObservableCollectionSync.Sync(ManagedRows, managedRows, RowEquals);
+        var dChanged = ObservableCollectionSync.Sync(DetectedRows, detectedRows, RowEquals);
+        if (mChanged) OnPropertyChanged(nameof(ManagedRows));
+        if (dChanged) OnPropertyChanged(nameof(DetectedRows));
         RefreshSelection();
     }
+
+    private static bool RowEquals(SandboxRow a, SandboxRow b) =>
+        string.Equals(a.Id, b.Id, StringComparison.Ordinal)
+        && string.Equals(a.PrimaryText, b.PrimaryText, StringComparison.Ordinal)
+        && string.Equals(a.SecondaryText, b.SecondaryText, StringComparison.Ordinal)
+        && a.IconColor.Equals(b.IconColor);
 
     private static SandboxRow ToRow(Sandbox sandbox) => new(
         sandbox.Id,

@@ -34,13 +34,27 @@ public sealed partial class ModelService : ObservableObject
     public async Task LoadAsync(bool showLoading = true, CancellationToken ct = default)
     {
         if (showLoading) IsLoading = true;
-        var providers = await _backend.DetectProvidersAsync(ct);
-        if (!ProvidersEqual(providers, Providers))
+        try
         {
-            Providers.Clear();
-            foreach (var provider in providers) Providers.Add(provider);
+            var providers = await _backend.DetectProvidersAsync(ct);
+            if (!ProvidersEqual(providers, Providers))
+            {
+                Providers.Clear();
+                foreach (var provider in providers) Providers.Add(provider);
+                // Notify even when only CollectionChanged fires — some pages bind to IsLoading
+                // / count badges and need a property pulse.
+                OnPropertyChanged(nameof(Providers));
+            }
+            Log.Backend.Debug($"ModelService.LoadAsync → {Providers.Count} provider(s)");
         }
-        IsLoading = false;
+        catch (Exception ex)
+        {
+            Log.Backend.Error($"ModelService.LoadAsync failed: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 
     /// Send a chat conversation to a provider running on the host and return its reply.

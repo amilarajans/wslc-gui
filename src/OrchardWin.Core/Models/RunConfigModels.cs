@@ -6,6 +6,12 @@ public sealed class ContainerRunConfig
     public string Image { get; set; } = "";
     public bool Detached { get; set; } = true;
     public bool RemoveAfterStop { get; set; }
+
+    /// When true and no explicit command is set, shell-only image defaults (alpine `/bin/sh`,
+    /// finite `sleep N`, …) are replaced with <c>sleep infinity</c> so the container stays up
+    /// until the user stops it from the GUI. Real server images keep their own entrypoint.
+    public bool KeepRunningUntilStopped { get; set; } = true;
+
     public List<EnvironmentVariable> EnvironmentVariables { get; set; } = [];
     public List<PortMapping> PortMappings { get; set; } = [];
     public List<VolumeMapping> VolumeMappings { get; set; } = [];

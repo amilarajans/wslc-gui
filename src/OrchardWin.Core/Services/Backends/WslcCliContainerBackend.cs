@@ -43,13 +43,33 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         // Real wslc: `container ps`/`list`/`ls` with `--format json` returns slim Docker rows
         //   { Id, Name, Image, State (int), Ports, CreatedAt, StateChangedAt }
         // — not the nested Orchard Container shape. Map via MapWslcContainerListRow.
+        // List rows omit Mounts/Networks; enrich each with `container inspect` so AllMounts
+        // and network attachments match Orchard (derived from configuration).
         var result = await RunAsync(["container", "ps", "--all", "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("container ps", result.ExitCode, result.Stderr);
 
-        return ParseJsonArrayOrLines<WslcContainerListRow>(result.Stdout, "container list")
+        var listed = ParseJsonArrayOrLines<WslcContainerListRow>(result.Stdout, "container list")
             .Select(MapWslcContainerListRow)
             .Where(c => !MachineBackingContainer.IsMachine(c.Configuration.Labels))
             .ToList();
+
+        if (listed.Count == 0) return listed;
+
+        // Cap inspect concurrency so a large fleet does not stampede the CLI.
+        using var gate = new SemaphoreSlim(6);
+        var tasks = listed.Select(async c =>
+        {
+            await gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                return await EnrichContainerFromInspectAsync(c, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        return await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     public async Task StopContainerAsync(string id, CancellationToken ct = default)
@@ -92,12 +112,22 @@ public sealed class WslcCliContainerBackend : IContainerBackend
     /// this method on an interval rather than treat the returned stream as infinite.
     public async Task<Stream> ContainerLogsAsync(string id, CancellationToken ct = default)
     {
-        // VERIFY: `container logs` (Docker-familiar mirror per task brief).
-        var result = await RunAsync(["container", "logs", id], ct);
-        if (result.Failed) throw OrchardWinException.CliFailed("container logs", result.ExitCode, result.Stderr);
+        // `wslc container logs` (and top-level `wslc logs`) accept id or name. Cap with -n so
+        // a noisy container cannot hang the UI poll. Empty stdout with exit 0 is success.
+        var result = await RunAsync(["container", "logs", "-n", "5000", id], ct);
+        if (result.Failed)
+        {
+            // Retry without -n for older CLI builds that reject the flag.
+            result = await RunAsync(["container", "logs", id], ct);
+        }
+        if (result.Failed)
+            throw OrchardWinException.CliFailed("container logs", result.ExitCode, result.Stderr);
 
         var text = result.Stdout ?? "";
-        if (!string.IsNullOrEmpty(result.Stderr)) text += result.Stderr;
+        // Some builds put logs on stderr; only append when stdout is empty so we don't
+        // double-up progress noise when both streams have content.
+        if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrEmpty(result.Stderr))
+            text = result.Stderr;
         return new MemoryStream(Encoding.UTF8.GetBytes(text));
     }
 
@@ -115,29 +145,18 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task CreateContainerAsync(ContainerCreateSpec spec, CancellationToken ct = default)
     {
-        // Mirror Orchard's createContainer: read the image's entrypoint/cmd/env/workingDir/
-        // user, merge with the spec's overrides, then start. Reuses InspectImageAsync
-        // instead of duplicating the image-inspect call/parse.
-        var inspection = await InspectImageAsync(spec.ImageRef, ct);
-        var variant = inspection.Variants.FirstOrDefault();
-
-        var mergedEnv = new List<string>(variant?.Env ?? []);
-        mergedEnv.AddRange(spec.Environment);
-
-        var processArgs = ResolveProcessArguments(variant?.Entrypoint, variant?.Cmd, spec.CommandOverride);
-        if (processArgs.Count == 0) throw OrchardWinException.NoEntrypoint();
-
-        var workingDirectory = string.IsNullOrEmpty(spec.WorkingDirectory)
-            ? (string.IsNullOrEmpty(variant?.WorkingDir) ? "/" : variant!.WorkingDir!)
-            : spec.WorkingDirectory;
-        var user = string.IsNullOrEmpty(variant?.User) ? null : variant!.User;
-
-        // VERIFY: `run -d` for detached create+start, and every flag below, mirror `docker
-        // run` conventions - the flag names/shorthands are a best-effort guess, not verified
-        // against `wslc run --help`.
+        // Let wslc apply the image's own ENTRYPOINT/CMD. Forcing `--entrypoint` from a
+        // pre-merged argv was wrong for many images (e.g. alpine → `/bin/sh` exits as soon as
+        // it has no TTY). User command tokens are passed as trailing args, matching
+        // `wslc run -d --name X [flags] image [cmd...]`.
+        // Always detach: ProcessCommandRunner cannot keep an attached foreground session.
         var args = new List<string> { "run", "-d", "--name", spec.Id };
         if (spec.AutoRemove) args.Add("--rm");
-        foreach (var env in mergedEnv) { args.Add("-e"); args.Add(env); }
+        foreach (var env in spec.Environment)
+        {
+            args.Add("-e");
+            args.Add(env);
+        }
         foreach (var vol in spec.Volumes)
         {
             var mount = $"{vol.HostPath}:{vol.ContainerPath}";
@@ -150,53 +169,34 @@ public sealed class WslcCliContainerBackend : IContainerBackend
             args.Add("-p");
             args.Add($"{port.HostPort}:{port.ContainerPort}/{port.TransportProtocol}");
         }
-        if (!string.IsNullOrEmpty(spec.NetworkName)) { args.Add("--network"); args.Add(spec.NetworkName); }
-        // VERIFY: `--dns-search` is Docker's flag for a search domain; Apple's per-container
-        // DNS "domain" field isn't quite the same concept, but it's the closest docker-style
-        // equivalent available without a dedicated `--dns-domain` flag.
-        if (!string.IsNullOrEmpty(spec.DnsDomain)) { args.Add("--dns-search"); args.Add(spec.DnsDomain); }
-        foreach (var label in spec.Labels) { args.Add("--label"); args.Add($"{label.Key}={label.Value}"); }
-        if (!string.IsNullOrEmpty(workingDirectory)) { args.Add("-w"); args.Add(workingDirectory); }
-        if (user is not null) { args.Add("-u"); args.Add(user); }
-        // Apple's process model is a single executable + argument vector with no separate
-        // entrypoint/cmd split; `--entrypoint` pins the resolved executable and the
-        // remaining tokens ride along as its arguments, so the merge in
-        // ResolveProcessArguments still fully determines what actually runs.
-        args.Add("--entrypoint");
-        args.Add(processArgs[0]);
-        args.Add(spec.ImageRef);
-        if (processArgs.Count > 1) args.AddRange(processArgs.Skip(1));
+        if (!string.IsNullOrEmpty(spec.NetworkName))
+        {
+            args.Add("--network");
+            args.Add(spec.NetworkName);
+        }
+        if (!string.IsNullOrEmpty(spec.DnsDomain))
+        {
+            args.Add("--dns-search");
+            args.Add(spec.DnsDomain);
+        }
+        foreach (var label in spec.Labels)
+        {
+            args.Add("--label");
+            args.Add($"{label.Key}={label.Value}");
+        }
+        if (!string.IsNullOrEmpty(spec.WorkingDirectory))
+        {
+            args.Add("-w");
+            args.Add(spec.WorkingDirectory);
+        }
 
+        args.Add(spec.ImageRef);
+        if (spec.CommandOverride.Count > 0)
+            args.AddRange(spec.CommandOverride);
+
+        Log.Cli.Debug($"wslc {string.Join(' ', args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
         var result = await RunAsync(args, ct);
         if (result.Failed) throw OrchardWinException.CliFailed("run", result.ExitCode, result.Stderr);
-    }
-
-    /// Combine an image's entrypoint and cmd with a user command override into the final
-    /// process argument vector. Override replaces cmd; entrypoint is always prefixed. Ported
-    /// 1:1 from Orchard's free function `resolveProcessArguments` (ContainerBackend.swift).
-    private static List<string> ResolveProcessArguments(IReadOnlyList<string>? imageEntrypoint, IReadOnlyList<string>? imageCmd, IReadOnlyList<string> commandOverride)
-    {
-        var processArgs = new List<string>();
-        if (imageEntrypoint is { Count: > 0 })
-        {
-            processArgs = [.. imageEntrypoint];
-        }
-        if (commandOverride.Count > 0)
-        {
-            if (processArgs.Count == 0)
-            {
-                processArgs = [.. commandOverride];
-            }
-            else
-            {
-                processArgs.AddRange(commandOverride);
-            }
-        }
-        else if (imageCmd is { Count: > 0 } && (processArgs.Count == 0 || imageEntrypoint is not null))
-        {
-            processArgs.AddRange(imageCmd);
-        }
-        return processArgs;
     }
 
     // MARK: - Images
@@ -291,12 +291,221 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<IReadOnlyList<ContainerNetwork>> ListNetworksAsync(CancellationToken ct = default)
     {
-        // Real wslc: { Driver, Id, Name } — not Orchard's nested config/status shape.
+        // Real wslc list: { Driver, Id, Name }. Enrich each with network inspect for
+        // subnet/gateway/labels so the detail pane can show Address Range / Gateway.
         var result = await RunAsync(["network", "ls", "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("network ls", result.ExitCode, result.Stderr);
-        return ParseJsonArrayOrLines<WslcNetworkListRow>(result.Stdout, "network list")
-            .Select(MapWslcNetworkListRow)
-            .ToList();
+        var listed = ParseJsonArrayOrLines<WslcNetworkListRow>(result.Stdout, "network list");
+        var networks = new List<ContainerNetwork>(listed.Count);
+        foreach (var row in listed)
+        {
+            networks.Add(await EnrichNetworkAsync(row, ct));
+        }
+        return networks;
+    }
+
+    public async Task<IReadOnlyList<ContainerNetworkAttachment>> ListContainerNetworkAttachmentsAsync(
+        string containerId, CancellationToken ct = default)
+    {
+        var result = await RunAsync(["container", "inspect", containerId], ct);
+        if (result.Failed) return [];
+        var row = ParseJsonObjectOrFirstOfArray<WslcContainerInspectRow>(result.Stdout, "container inspect");
+        return MapInspectNetworks(row, containerId);
+    }
+
+    /// Merge list-row container with inspect fields: mounts, networks, status, resources.
+    private async Task<Container> EnrichContainerFromInspectAsync(Container listed, CancellationToken ct)
+    {
+        var id = listed.Configuration.Id;
+        try
+        {
+            var result = await RunAsync(["container", "inspect", id], ct).ConfigureAwait(false);
+            if (result.Failed) return listed;
+            var row = ParseJsonObjectOrFirstOfArray<WslcContainerInspectRow>(result.Stdout, "container inspect");
+            if (row is null) return listed;
+
+            var status = listed.Status;
+            if (!string.IsNullOrWhiteSpace(row.State?.Status))
+                status = row.State!.Status!.Trim().ToLowerInvariant();
+            else if (row.State?.Running == true)
+                status = "running";
+
+            var mounts = MapInspectMounts(row.Mounts);
+            var networks = MapInspectNetworks(row, id);
+            var labels = row.Labels is { Count: > 0 }
+                ? new Dictionary<string, string>(row.Labels, StringComparer.Ordinal)
+                : listed.Configuration.Labels;
+
+            var cpus = listed.Configuration.Resources.Cpus;
+            var mem = listed.Configuration.Resources.MemoryInBytes;
+            if (row.HostConfig is not null)
+            {
+                if (row.HostConfig.NanoCpus is > 0)
+                    cpus = (int)Math.Max(1, Math.Round(row.HostConfig.NanoCpus.Value / 1_000_000_000.0));
+                if (row.HostConfig.Memory is > 0)
+                    mem = row.HostConfig.Memory.Value;
+            }
+
+            var init = listed.Configuration.InitProcess;
+            if (row.Config is not null)
+            {
+                var args = row.Config.Cmd ?? [];
+                var executable = args.Count > 0
+                    ? args[0]
+                    : (row.Config.Entrypoint?.FirstOrDefault() ?? init.Executable);
+                var remaining = args.Count > 1 ? args.Skip(1).ToList() : [];
+                if (row.Config.Entrypoint is { Count: > 0 } ep && args.Count > 0
+                    && !string.Equals(ep[0], args[0], StringComparison.Ordinal))
+                {
+                    // Image entrypoint + cmd: treat full cmd as arguments when entrypoint is separate.
+                    executable = ep[0];
+                    remaining = args;
+                }
+                init = new InitProcess
+                {
+                    Executable = executable ?? "",
+                    Arguments = remaining,
+                    WorkingDirectory = string.IsNullOrEmpty(row.Config.WorkingDir) ? init.WorkingDirectory : row.Config.WorkingDir!,
+                    Environment = row.Config.Env ?? init.Environment,
+                    User = string.IsNullOrEmpty(row.Config.User) ? init.User : row.Config.User,
+                    Terminal = init.Terminal,
+                };
+            }
+
+            var hostname = listed.Configuration.Hostname;
+            if (!string.IsNullOrWhiteSpace(row.Name))
+                hostname = row.Name!.TrimStart('/');
+
+            return listed with
+            {
+                Status = status,
+                Networks = networks.ToList(),
+                Configuration = listed.Configuration with
+                {
+                    Hostname = hostname,
+                    Labels = labels,
+                    Mounts = mounts,
+                    Resources = new Resources { Cpus = cpus, MemoryInBytes = mem },
+                    InitProcess = init,
+                    Image = string.IsNullOrWhiteSpace(row.Image)
+                        ? listed.Configuration.Image
+                        : listed.Configuration.Image with { Reference = row.Image! },
+                },
+            };
+        }
+        catch
+        {
+            // List-only fallback — Mounts stay empty for this container.
+            return listed;
+        }
+    }
+
+    private static List<Mount> MapInspectMounts(List<WslcMountRow>? mounts)
+    {
+        if (mounts is null || mounts.Count == 0) return [];
+        var list = new List<Mount>(mounts.Count);
+        foreach (var m in mounts)
+        {
+            var type = string.IsNullOrWhiteSpace(m.Type) ? "bind" : m.Type!.Trim().ToLowerInvariant();
+            var source = !string.IsNullOrWhiteSpace(m.Source)
+                ? m.Source!
+                : (m.Name ?? "");
+            var dest = m.Destination ?? "";
+            if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(dest))
+                continue;
+
+            var options = new List<string>();
+            if (m.ReadWrite == false) options.Add("ro");
+            else if (m.ReadWrite == true) options.Add("rw");
+            if (!string.IsNullOrWhiteSpace(m.Mode)) options.Add(m.Mode!);
+            if (!string.IsNullOrWhiteSpace(m.Propagation)) options.Add(m.Propagation!);
+
+            list.Add(new Mount
+            {
+                Type = type,
+                Source = source,
+                Destination = dest,
+                Options = options,
+            });
+        }
+        return list;
+    }
+
+    private static List<ContainerNetworkAttachment> MapInspectNetworks(
+        WslcContainerInspectRow? row, string fallbackHostname)
+    {
+        if (row?.NetworkSettings?.Networks is null || row.NetworkSettings.Networks.Count == 0)
+            return [];
+
+        var list = new List<ContainerNetworkAttachment>();
+        var hostname = row.Name?.TrimStart('/') ?? fallbackHostname;
+        foreach (var (name, net) in row.NetworkSettings.Networks)
+        {
+            var addr = net.IPAddress ?? "";
+            if (!string.IsNullOrEmpty(addr) && net.IPPrefixLen is > 0 and <= 128)
+                addr = $"{addr}/{net.IPPrefixLen}";
+            list.Add(new ContainerNetworkAttachment
+            {
+                Network = name,
+                Address = addr,
+                Gateway = net.Gateway ?? "",
+                Hostname = hostname,
+            });
+        }
+        return list;
+    }
+
+    private async Task<ContainerNetwork> EnrichNetworkAsync(WslcNetworkListRow row, CancellationToken ct)
+    {
+        var name = string.IsNullOrEmpty(row.Name) ? row.Id : row.Name;
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!string.IsNullOrEmpty(row.Driver)) labels["driver"] = row.Driver;
+        if (!string.IsNullOrEmpty(row.Id)) labels["id"] = row.Id;
+
+        string? gateway = null;
+        string? address = null;
+
+        try
+        {
+            var inspect = await RunAsync(["network", "inspect", name], ct);
+            if (!inspect.Failed)
+            {
+                var detail = ParseJsonObjectOrFirstOfArray<WslcNetworkInspectRow>(inspect.Stdout, "network inspect");
+                if (detail is not null)
+                {
+                    if (detail.Labels is { Count: > 0 })
+                    {
+                        foreach (var kv in detail.Labels)
+                            labels[kv.Key] = kv.Value;
+                    }
+                    var ipam = detail.IPAM?.Config?.FirstOrDefault();
+                    if (ipam is not null)
+                    {
+                        gateway = string.IsNullOrEmpty(ipam.Gateway) ? null : ipam.Gateway;
+                        address = string.IsNullOrEmpty(ipam.Subnet) ? null : ipam.Subnet;
+                    }
+                    if (!string.IsNullOrEmpty(detail.Driver))
+                        labels["driver"] = detail.Driver;
+                }
+            }
+        }
+        catch
+        {
+            // list-only fallback
+        }
+
+        // Fall back to driver as a secondary line when inspect has no subnet.
+        address ??= string.IsNullOrEmpty(row.Driver) ? null : row.Driver;
+
+        return new ContainerNetwork
+        {
+            Id = name,
+            State = "active",
+            Config = new NetworkConfig { Id = name, Labels = labels },
+            Status = new NetworkStatus { Gateway = gateway, Address = address },
+            IsHostOnly = string.Equals(row.Driver, "host", StringComparison.OrdinalIgnoreCase)
+                || (labels.TryGetValue("driver", out var d) && string.Equals(d, "host", StringComparison.OrdinalIgnoreCase)),
+        };
     }
 
     public async Task CreateNetworkAsync(string name, string? subnet, Dictionary<string, string> labels, CancellationToken ct = default)
@@ -438,6 +647,83 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         public string Name { get; set; } = "";
     }
 
+    private sealed class WslcNetworkInspectRow
+    {
+        public string Driver { get; set; } = "";
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public Dictionary<string, string>? Labels { get; set; }
+        public WslcIpam? IPAM { get; set; }
+    }
+
+    private sealed class WslcIpam
+    {
+        public List<WslcIpamConfig>? Config { get; set; }
+    }
+
+    private sealed class WslcIpamConfig
+    {
+        public string? Gateway { get; set; }
+        public string? Subnet { get; set; }
+    }
+
+    private sealed class WslcContainerInspectRow
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Image { get; set; }
+        public Dictionary<string, string>? Labels { get; set; }
+        public List<WslcMountRow>? Mounts { get; set; }
+        public WslcNetworkSettings? NetworkSettings { get; set; }
+        public WslcInspectState? State { get; set; }
+        public WslcInspectConfig? Config { get; set; }
+        public WslcInspectHostConfig? HostConfig { get; set; }
+    }
+
+    private sealed class WslcMountRow
+    {
+        public string? Type { get; set; }
+        public string? Name { get; set; }
+        public string? Source { get; set; }
+        public string? Destination { get; set; }
+        public bool? ReadWrite { get; set; }
+        public string? Mode { get; set; }
+        public string? Propagation { get; set; }
+    }
+
+    private sealed class WslcInspectState
+    {
+        public string? Status { get; set; }
+        public bool? Running { get; set; }
+    }
+
+    private sealed class WslcInspectConfig
+    {
+        public List<string>? Cmd { get; set; }
+        public List<string>? Entrypoint { get; set; }
+        public List<string>? Env { get; set; }
+        public string? WorkingDir { get; set; }
+        public string? User { get; set; }
+    }
+
+    private sealed class WslcInspectHostConfig
+    {
+        public long? Memory { get; set; }
+        public long? NanoCpus { get; set; }
+    }
+
+    private sealed class WslcNetworkSettings
+    {
+        public Dictionary<string, WslcEndpointSettings>? Networks { get; set; }
+    }
+
+    private sealed class WslcEndpointSettings
+    {
+        public string? Gateway { get; set; }
+        public string? IPAddress { get; set; }
+        public int? IPPrefixLen { get; set; }
+    }
+
     private sealed class WslcVolumeListRow
     {
         public string Driver { get; set; } = "";
@@ -514,27 +800,7 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         };
     }
 
-    private static ContainerNetwork MapWslcNetworkListRow(WslcNetworkListRow row)
-    {
-        // Prefer human name as Id for delete/display (wslc accepts name); keep hash in labels.
-        var name = string.IsNullOrEmpty(row.Name) ? row.Id : row.Name;
-        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (!string.IsNullOrEmpty(row.Driver)) labels["driver"] = row.Driver;
-        if (!string.IsNullOrEmpty(row.Id)) labels["id"] = row.Id;
 
-        return new ContainerNetwork
-        {
-            Id = name,
-            State = "active",
-            Config = new NetworkConfig { Id = name, Labels = labels },
-            Status = new NetworkStatus
-            {
-                Gateway = null,
-                Address = string.IsNullOrEmpty(row.Driver) ? null : row.Driver,
-            },
-            IsHostOnly = string.Equals(row.Driver, "host", StringComparison.OrdinalIgnoreCase),
-        };
-    }
 
     private ContainerStats MapWslcStatsRow(WslcStatsRow row, string requestedId)
     {
