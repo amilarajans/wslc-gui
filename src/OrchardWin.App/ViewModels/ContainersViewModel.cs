@@ -121,13 +121,30 @@ public sealed partial class ContainersViewModel : ObservableObject
         ContainerRows = new ObservableCollection<ContainerRowVm>(ordered.Select(BuildRow));
     }
 
-    private static ContainerRowVm BuildRow(Container c) => new(
-        Container: c,
-        PrimaryText: c.Configuration.Id,
-        SecondaryLeftText: NetworkAddress(c) ?? "-",
-        SecondaryRightText: Hostname(c),
-        IconColor: IsRunning(c) ? Colors.LimeGreen : Colors.Gray,
-        ShowSandboxBadge: c.IsSandbox());
+    private static ContainerRowVm BuildRow(Container c)
+    {
+        // Prefer human name (wslc maps Name → Configuration.Hostname); fall back to short id.
+        var name = !string.IsNullOrWhiteSpace(c.Configuration.Hostname)
+            ? c.Configuration.Hostname!
+            : ShortId(c.Configuration.Id);
+        var image = c.Configuration.Image.Reference;
+        var address = NetworkAddress(c);
+        var secondaryLeft = address is not null ? address : c.Status;
+        var secondaryRight = address is not null
+            ? $"{c.Status} · {image}"
+            : image;
+
+        return new(
+            Container: c,
+            PrimaryText: name,
+            SecondaryLeftText: secondaryLeft,
+            SecondaryRightText: secondaryRight,
+            IconColor: IsRunning(c) ? Colors.LimeGreen : Colors.Gray,
+            ShowSandboxBadge: c.IsSandbox());
+    }
+
+    private static string ShortId(string id) =>
+        id.Length > 12 ? id[..12] : id;
 
     /// After a reload, re-point SelectedContainer at the fresh instance with the same id (the
     /// service always publishes new `Container` records) so the detail pane keeps showing the

@@ -6,54 +6,104 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <NavigationView x:Name="RootNav"
-                     PaneDisplayMode="Left"
-                     IsBackButtonVisible="Collapsed"
-                     IsSettingsVisible="True"
-                     SelectionChanged="RootNav_SelectionChanged">
-        <NavigationView.MenuItems>
-            <NavigationViewItem Content="Dashboard" Tag="dashboard">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE80F;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Containers" Tag="containers">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE7B8;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Images" Tag="images">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE7C5;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Machines" Tag="machines">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE977;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Networks" Tag="networks">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE839;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="DNS" Tag="dns">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE774;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Local AI &amp; Sandboxes" Tag="models">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE99A;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Logs" Tag="logs">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE7BA;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-        </NavigationView.MenuItems>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-        <Frame x:Name="ContentFrame" />
-    </NavigationView>
+        <!-- Custom title bar (drag region); caption buttons stay system-drawn. -->
+        <Grid x:Name="AppTitleBar"
+              Grid.Row="0"
+              Height="40"
+              Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="16,0,140,0"
+              ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Width="22" Height="22"
+                    CornerRadius="4"
+                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                    VerticalAlignment="Center">
+                <FontIcon Glyph="&#xE7B8;" FontSize="12" Foreground="White"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+
+            <TextBlock Grid.Column="1"
+                       x:Name="AppTitleText"
+                       Text="wslc-gui"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"
+                       Margin="4,0,0,0" />
+
+            <TextBlock Grid.Column="3"
+                       x:Name="AppTitleSubtitle"
+                       Text="WSL containers"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Opacity="0.55"
+                       VerticalAlignment="Center" />
+        </Grid>
+
+        <NavigationView x:Name="RootNav"
+                        Grid.Row="1"
+                        PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="True"
+                        OpenPaneLength="220"
+                        SelectionChanged="RootNav_SelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Dashboard" Tag="dashboard">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Containers" Tag="containers">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7B8;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Images" Tag="images">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7C5;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Machines" Tag="machines">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE977;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Networks" Tag="networks">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE839;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="DNS" Tag="dns">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE774;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Local AI &amp; Sandboxes" Tag="models">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE99A;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Logs" Tag="logs">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7BA;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <Frame x:Name="ContentFrame" />
+        </NavigationView>
+    </Grid>
 </Window>

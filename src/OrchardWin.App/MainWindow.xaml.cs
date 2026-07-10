@@ -1,7 +1,11 @@
+using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using OrchardWin.Core.Services;
 using OrchardWin.App.Views;
+using Windows.Graphics;
+using WinRT.Interop;
 
 namespace OrchardWin.App;
 
@@ -35,10 +39,52 @@ public sealed partial class MainWindow : Window
     {
         _services = services;
         InitializeComponent();
-        Title = "Orchard for Windows";
+        Title = "wslc-gui";
+
+        ConfigureTitleBar();
+        TrySetWindowSize(1280, 800);
 
         RootNav.SelectedItem = RootNav.MenuItems[0];
         Navigate("dashboard");
+    }
+
+    private void ConfigureTitleBar()
+    {
+        // Client area draws into the caption so AppTitleBar can host branding; system min/max/close remain.
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            if (appWindow.TitleBar is { } titleBar)
+            {
+                titleBar.ExtendsContentIntoTitleBar = true;
+                titleBar.ButtonBackgroundColor = Colors.Transparent;
+                titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+            }
+        }
+        catch
+        {
+            // Title-bar chrome is cosmetic; fall back to default caption buttons if AppWindow is unavailable.
+        }
+    }
+
+    private void TrySetWindowSize(int width, int height)
+    {
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            appWindow.Resize(new SizeInt32(width, height));
+        }
+        catch
+        {
+            // Non-fatal.
+        }
     }
 
     /// Selection alone drives navigation - clicking a menu item changes the selection, and

@@ -1,5 +1,8 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using OrchardWin.Core.Models;
 
 namespace OrchardWin.Core.Services.Backends;
@@ -10,17 +13,17 @@ namespace OrchardWin.Core.Services.Backends;
 /// through <see cref="ICommandRunner"/> and its stdout (where present) is parsed as JSON
 /// against the existing <c>Models</c> types.
 ///
-/// Confirmed subcommands (from the Build 2026 preview docs / task brief): `run`, `image ls`,
-/// `container ps`, `container stop`. Every other subcommand/flag below is a best-effort
-/// mirror of Docker CLI conventions and is tagged `// VERIFY:` - grep for that marker once
-/// `wslc --help` / `wslc <subcommand> --help` is available on real Windows and fix up any
-/// that are wrong. No unverified command is allowed to crash the app: every call funnels
-/// through <see cref="RunAsync"/>/<see cref="RunJsonAsync{T}"/> which wrap failures in
-/// <see cref="OrchardWinException"/> and let callers decide how to degrade.
+/// Real <c>wslc</c> (verified 2.9.x) emits Docker-compatible list/inspect JSON — not Orchard's
+/// nested Apple-container shapes. List/inspect/network/stats/disk-usage methods map the wire
+/// format into domain models. Remaining unconfirmed flags stay tagged <c>// VERIFY:</c>.
 public sealed class WslcCliContainerBackend : IContainerBackend
 {
     private readonly ICommandRunner _runner;
     private readonly string _wslcBinaryPath;
+
+    /// Accumulates pseudo-CPU usec from Docker-style percent stats so
+    /// <see cref="StatsMath.ComputeSample"/> can still compute a percent from deltas.
+    private readonly ConcurrentDictionary<string, (long CpuUsec, long LastTickMs)> _cpuAccum = new();
 
     private static readonly JsonSerializerOptions CaseInsensitiveJson = new()
     {
@@ -37,16 +40,14 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<IReadOnlyList<Container>> ListContainersAsync(CancellationToken ct = default)
     {
-        // VERIFY: `container ps` is confirmed to exist; the `--all`/`--format json` flags and
-        // the assumption that it returns the *full* Container shape (not a slimmed-down
-        // docker-ps-style projection) are guesses. If `ps` turns out to return only
-        // id/name/status, switch this to `ps` for ids followed by `container inspect <ids...>`
-        // for full detail, mirroring how ListImagesAsync/InspectImageAsync are split.
+        // Real wslc: `container ps`/`list`/`ls` with `--format json` returns slim Docker rows
+        //   { Id, Name, Image, State (int), Ports, CreatedAt, StateChangedAt }
+        // — not the nested Orchard Container shape. Map via MapWslcContainerListRow.
         var result = await RunAsync(["container", "ps", "--all", "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("container ps", result.ExitCode, result.Stderr);
 
-        var containers = ParseJsonArrayOrLines<Container>(result.Stdout, "container list");
-        return containers
+        return ParseJsonArrayOrLines<WslcContainerListRow>(result.Stdout, "container list")
+            .Select(MapWslcContainerListRow)
             .Where(c => !MachineBackingContainer.IsMachine(c.Configuration.Labels))
             .ToList();
     }
@@ -106,20 +107,14 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<ContainerStats> StatsAsync(string id, CancellationToken ct = default)
     {
-        // VERIFY: `container stats --no-stream --format json`, and critically the assumed
-        // JSON shape - a flat object with camelCase keys matching ContainerStats field names
-        // 1:1 (id, cpuUsageUsec, memoryUsageBytes, memoryLimitBytes, blockReadBytes,
-        // blockWriteBytes, networkRxBytes, networkTxBytes, numProcesses), mirroring Apple's
-        // raw ContainerResource.ContainerStats shape that Orchard's mapContainerStats reads
-        // from. Docker's own `docker stats --format json` instead emits human-formatted
-        // strings (e.g. "5.3MiB / 7.775GiB") which would need unit parsing - if wslc mirrors
-        // that instead of raw byte counts, this needs a text-parsing rewrite.
-        var result = await RunAsync(["container", "stats", id, "--no-stream", "--format", "json"], ct);
+        // Real wslc: Docker-style one-shot JSON (no --no-stream flag), e.g.
+        // { ID, Name, CPUPerc: "0.00%", MemUsage: "0 B / 0 B", NetIO, BlockIO, PIDs }.
+        var result = await RunAsync(["container", "stats", id, "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("container stats", result.ExitCode, result.Stderr);
 
-        var stats = ParseJsonObjectOrFirstOfArray<ContainerStats>(result.Stdout, "container stats");
-        if (stats is null) throw OrchardWinException.DecodeFailed("container stats");
-        return stats.Id == id ? stats : stats.With(id);
+        var row = ParseJsonObjectOrFirstOfArray<WslcStatsRow>(result.Stdout, "container stats");
+        if (row is null) throw OrchardWinException.DecodeFailed("container stats");
+        return MapWslcStatsRow(row, id);
     }
 
     public async Task CreateContainerAsync(ContainerCreateSpec spec, CancellationToken ct = default)
@@ -300,60 +295,12 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<IReadOnlyList<ContainerNetwork>> ListNetworksAsync(CancellationToken ct = default)
     {
-        // VERIFY: `network ls --format json` (Docker-familiar mirror per task brief).
+        // Real wslc: { Driver, Id, Name } — not Orchard's nested config/status shape.
         var result = await RunAsync(["network", "ls", "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("network ls", result.ExitCode, result.Stderr);
-        return ParseNetworks(result.Stdout);
-    }
-
-    /// `ContainerNetwork.IsHostOnly` is `[JsonIgnore]`d - Orchard derives it at mapping time
-    /// from the network's mode (`resource.configuration.mode == .hostOnly`), not from a wire
-    /// field the model itself carries. Deserialize the wire fields normally, then separately
-    /// peek the raw JSON for a mode-ish string to fill in IsHostOnly.
-    /// VERIFY: the field name/location ("mode" at the top level or nested under "config") and
-    /// the token spelling ("host-only" / "hostOnly" / "host_only" / "isolated") are all
-    /// guesses - there is no confirmed wslc network JSON to check this against.
-    private static List<ContainerNetwork> ParseNetworks(string? stdout)
-    {
-        if (string.IsNullOrWhiteSpace(stdout)) return [];
-        var trimmed = stdout.Trim();
-        try
-        {
-            using var doc = JsonDocument.Parse(trimmed);
-            var elements = doc.RootElement.ValueKind == JsonValueKind.Array
-                ? doc.RootElement.EnumerateArray()
-                : new[] { doc.RootElement }.AsEnumerable();
-
-            var result = new List<ContainerNetwork>();
-            foreach (var element in elements)
-            {
-                var network = element.Deserialize<ContainerNetwork>(CaseInsensitiveJson);
-                if (network is null) continue;
-                result.Add(network with { IsHostOnly = LooksHostOnly(element) });
-            }
-            return result;
-        }
-        catch (JsonException)
-        {
-            Log.Containers.Error($"network ls: could not decode wslc output: {Preview(trimmed)}");
-            return [];
-        }
-    }
-
-    private static bool LooksHostOnly(JsonElement element)
-    {
-        string? mode = null;
-        if (element.TryGetProperty("mode", out var modeProp) && modeProp.ValueKind == JsonValueKind.String)
-            mode = modeProp.GetString();
-        else if (element.TryGetProperty("config", out var configProp) && configProp.ValueKind == JsonValueKind.Object
-                 && configProp.TryGetProperty("mode", out var nestedMode) && nestedMode.ValueKind == JsonValueKind.String)
-            mode = nestedMode.GetString();
-
-        if (mode is null) return false;
-        return mode.Equals("host-only", StringComparison.OrdinalIgnoreCase)
-            || mode.Equals("hostOnly", StringComparison.OrdinalIgnoreCase)
-            || mode.Equals("host_only", StringComparison.OrdinalIgnoreCase)
-            || mode.Equals("isolated", StringComparison.OrdinalIgnoreCase);
+        return ParseJsonArrayOrLines<WslcNetworkListRow>(result.Stdout, "network list")
+            .Select(MapWslcNetworkListRow)
+            .ToList();
     }
 
     public async Task CreateNetworkAsync(string name, string? subnet, Dictionary<string, string> labels, CancellationToken ct = default)
@@ -380,53 +327,70 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task<SystemHealthInfo> PingAsync(CancellationToken ct = default)
     {
-        // There is no `docker ping` equivalent; `system info` is used as the health probe
-        // (a successful, parseable response means the service is reachable), matching how
-        // Orchard's ping() surfaces the running apiServerVersion.
-        // VERIFY: `system info --format json` and the field name carrying a version string
-        // (tried: "version", "serverVersion", "apiServerVersion").
-        var result = await RunAsync(["system", "info", "--format", "json"], ct);
+        // Real wslc has no `system info`; `version` prints e.g. "wslc 2.9.3.0".
+        var result = await RunAsync(["version"], ct);
         if (result.Failed) throw OrchardWinException.ServiceUnavailable();
 
-        var version = TryExtractVersion(result.Stdout) ?? "unknown";
-        return new SystemHealthInfo(version);
-    }
+        var text = (result.Stdout ?? result.Stderr ?? "").Trim();
+        if (string.IsNullOrEmpty(text)) throw OrchardWinException.ServiceUnavailable();
 
-    private static string? TryExtractVersion(string? stdout)
-    {
-        if (string.IsNullOrWhiteSpace(stdout)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(stdout.Trim());
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
-            foreach (var key in new[] { "apiServerVersion", "version", "serverVersion" })
-            {
-                if (doc.RootElement.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.String)
-                    return prop.GetString();
-            }
-            return null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
+        // Prefer the trailing version token.
+        var parts = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var version = parts.Length > 0 ? parts[^1] : text;
+        return new SystemHealthInfo(version);
     }
 
     public async Task<SystemDiskUsage> DiskUsageAsync(CancellationToken ct = default)
     {
-        // VERIFY: `system df --format json` (best-effort mirror per task brief), and the
-        // assumed flat shape { containers: {...}, images: {...}, volumes: {...} } with each
-        // section's fields matching DiskUsageSection (active/reclaimable/sizeInBytes/total)
-        // 1:1 camelCase, mirroring Orchard's mapDiskUsageStats/mapResourceUsage.
-        var result = await RunAsync(["system", "df", "--format", "json"], ct);
-        if (result.Failed) throw OrchardWinException.CliFailed("system df", result.ExitCode, result.Stderr);
+        // Real wslc has no `system df`. Synthesize dashboard tiles from image list +
+        // container list + volume list (sizes only known for images today).
+        var images = await ListImagesAsync(ct);
+        var containers = await ListContainersAsync(ct);
+        var volumeResult = await RunAsync(["volume", "ls", "--format", "json"], ct);
+        IReadOnlyList<WslcVolumeListRow> volumes = volumeResult.Failed
+            ? Array.Empty<WslcVolumeListRow>()
+            : ParseJsonArrayOrLines<WslcVolumeListRow>(volumeResult.Stdout, "volume list");
 
-        var usage = ParseJsonObjectOrFirstOfArray<SystemDiskUsage>(result.Stdout, "disk usage");
-        if (usage is null) throw OrchardWinException.DecodeFailed("disk usage");
-        return usage;
+        var imageBytes = images.Sum(i => i.Descriptor.Size);
+        var running = containers.Count(c =>
+            string.Equals(c.Status, "running", StringComparison.OrdinalIgnoreCase));
+        var exited = containers.Count - running;
+
+        // Unique image digests (same Id can appear once per tag).
+        var uniqueImageCount = images
+            .Select(i => i.Descriptor.Digest)
+            .Where(d => !string.IsNullOrEmpty(d))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        if (uniqueImageCount == 0) uniqueImageCount = images.Count;
+
+        return new SystemDiskUsage
+        {
+            Images = new DiskUsageSection
+            {
+                Total = uniqueImageCount,
+                Active = uniqueImageCount,
+                SizeInBytes = imageBytes,
+                Reclaimable = 0,
+            },
+            Containers = new DiskUsageSection
+            {
+                Total = containers.Count,
+                Active = running,
+                SizeInBytes = 0,
+                Reclaimable = exited,
+            },
+            Volumes = new DiskUsageSection
+            {
+                Total = volumes.Count,
+                Active = volumes.Count,
+                SizeInBytes = 0,
+                Reclaimable = 0,
+            },
+        };
     }
 
-    // MARK: - wslc image wire shapes (Docker-compatible)
+    // MARK: - wslc wire shapes (Docker-compatible, verified against wslc 2.9.x)
 
     /// Wire row from `wslc image ls --format json`. Property names match the real CLI
     /// (PascalCase); PropertyNameCaseInsensitive handles either casing.
@@ -457,6 +421,207 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         public List<string>? Env { get; set; }
         public string? WorkingDir { get; set; }
         public string? User { get; set; }
+    }
+
+    private sealed class WslcContainerListRow
+    {
+        public long CreatedAt { get; set; }
+        public string Id { get; set; } = "";
+        public string Image { get; set; } = "";
+        public string Name { get; set; } = "";
+        public List<string>? Ports { get; set; }
+        /// Verified: 1=created, 2=running, 3=exited (wslc 2.9.x).
+        public int State { get; set; }
+        public long StateChangedAt { get; set; }
+    }
+
+    private sealed class WslcNetworkListRow
+    {
+        public string Driver { get; set; } = "";
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+    }
+
+    private sealed class WslcVolumeListRow
+    {
+        public string Driver { get; set; } = "";
+        public string Name { get; set; } = "";
+    }
+
+    private sealed class WslcStatsRow
+    {
+        public string ID { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string CPUPerc { get; set; } = "";
+        public string MemUsage { get; set; } = "";
+        public string MemPerc { get; set; } = "";
+        public string NetIO { get; set; } = "";
+        public string BlockIO { get; set; } = "";
+        public int PIDs { get; set; }
+    }
+
+    /// Map wslc container State int → status string used by IsRunning checks.
+    private static string MapWslcContainerState(int state) => state switch
+    {
+        1 => "created",
+        2 => "running",
+        3 => "exited",
+        4 => "paused",
+        5 => "restarting",
+        6 => "removing",
+        7 => "dead",
+        _ => $"state-{state}",
+    };
+
+    private static Container MapWslcContainerListRow(WslcContainerListRow row)
+    {
+        var id = string.IsNullOrEmpty(row.Id) ? row.Name : row.Id;
+        var name = string.IsNullOrEmpty(row.Name) ? id : row.Name;
+        var imageRef = string.IsNullOrEmpty(row.Image) ? "unknown" : row.Image;
+
+        return new Container
+        {
+            Status = MapWslcContainerState(row.State),
+            Configuration = new ContainerConfiguration
+            {
+                Id = id,
+                Hostname = name,
+                RuntimeHandler = "wslc",
+                InitProcess = new InitProcess
+                {
+                    Executable = "",
+                    Arguments = [],
+                    WorkingDirectory = "/",
+                },
+                Platform = new Platform
+                {
+                    Os = "linux",
+                    Architecture = "amd64",
+                },
+                Image = new ImageReference
+                {
+                    Reference = imageRef,
+                    Descriptor = new ImageDescriptor
+                    {
+                        Digest = "",
+                        MediaType = "application/vnd.oci.image.index.v1+json",
+                        Size = 0,
+                    },
+                },
+                Resources = new Resources { Cpus = 0, MemoryInBytes = 0 },
+                Labels = new Dictionary<string, string>(),
+                Mounts = [],
+                PublishedPorts = [],
+                Sysctls = new Dictionary<string, string>(),
+            },
+            Networks = [],
+        };
+    }
+
+    private static ContainerNetwork MapWslcNetworkListRow(WslcNetworkListRow row)
+    {
+        // Prefer human name as Id for delete/display (wslc accepts name); keep hash in labels.
+        var name = string.IsNullOrEmpty(row.Name) ? row.Id : row.Name;
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!string.IsNullOrEmpty(row.Driver)) labels["driver"] = row.Driver;
+        if (!string.IsNullOrEmpty(row.Id)) labels["id"] = row.Id;
+
+        return new ContainerNetwork
+        {
+            Id = name,
+            State = "active",
+            Config = new NetworkConfig { Id = name, Labels = labels },
+            Status = new NetworkStatus
+            {
+                Gateway = null,
+                Address = string.IsNullOrEmpty(row.Driver) ? null : row.Driver,
+            },
+            IsHostOnly = string.Equals(row.Driver, "host", StringComparison.OrdinalIgnoreCase),
+        };
+    }
+
+    private ContainerStats MapWslcStatsRow(WslcStatsRow row, string requestedId)
+    {
+        var id = string.IsNullOrEmpty(row.ID) ? requestedId : row.ID;
+        ParseSlashPair(row.MemUsage, out var memUsed, out var memLimit);
+        ParseSlashPair(row.NetIO, out var netRx, out var netTx);
+        ParseSlashPair(row.BlockIO, out var blkRead, out var blkWrite);
+        var cpuPerc = ParsePercent(row.CPUPerc);
+
+        // Accumulate CPU usec from instantaneous percent so StatsMath can derive % from deltas.
+        var now = Environment.TickCount64;
+        var accum = _cpuAccum.AddOrUpdate(
+            id,
+            _ => ((long)(cpuPerc / 100.0 * 1_000_000), now),
+            (_, prev) =>
+            {
+                var elapsedSec = Math.Max(0.001, (now - prev.LastTickMs) / 1000.0);
+                var delta = (long)(cpuPerc / 100.0 * elapsedSec * 1_000_000);
+                return (prev.CpuUsec + Math.Max(0, delta), now);
+            });
+
+        return new ContainerStats
+        {
+            Id = id,
+            CpuUsageUsec = accum.CpuUsec,
+            MemoryUsageBytes = memUsed,
+            MemoryLimitBytes = memLimit,
+            NetworkRxBytes = netRx,
+            NetworkTxBytes = netTx,
+            BlockReadBytes = blkRead,
+            BlockWriteBytes = blkWrite,
+            NumProcesses = row.PIDs,
+        };
+    }
+
+    private static double ParsePercent(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        var s = text.Trim().TrimEnd('%');
+        return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            ? Math.Clamp(v, 0, 100)
+            : 0;
+    }
+
+    /// Parse Docker "a / b" human sizes (e.g. "1.5MiB / 2GiB", "0 B / 0 B").
+    private static void ParseSlashPair(string? text, out long left, out long right)
+    {
+        left = 0;
+        right = 0;
+        if (string.IsNullOrWhiteSpace(text)) return;
+        var parts = text.Split('/', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length >= 1) left = ParseHumanSize(parts[0]);
+        if (parts.Length >= 2) right = ParseHumanSize(parts[1]);
+    }
+
+    private static readonly Regex HumanSizeRegex = new(
+        @"^\s*([0-9]*\.?[0-9]+)\s*([kKmMgGtTpP]?i?[bB])?\s*$",
+        RegexOptions.Compiled);
+
+    private static long ParseHumanSize(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        var m = HumanSizeRegex.Match(text);
+        if (!m.Success) return 0;
+        if (!double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n))
+            return 0;
+        var unit = m.Groups[2].Success ? m.Groups[2].Value.ToLowerInvariant() : "b";
+        double mult = unit switch
+        {
+            "b" => 1,
+            "kb" or "k" => 1000,
+            "kib" or "ki" => 1024,
+            "mb" or "m" => 1_000_000,
+            "mib" or "mi" => 1024d * 1024,
+            "gb" or "g" => 1_000_000_000,
+            "gib" or "gi" => 1024d * 1024 * 1024,
+            "tb" or "t" => 1_000_000_000_000,
+            "tib" or "ti" => 1024d * 1024 * 1024 * 1024,
+            "pb" or "p" => 1_000_000_000_000_000,
+            "pib" or "pi" => 1024d * 1024 * 1024 * 1024 * 1024,
+            _ => 1,
+        };
+        return (long)Math.Round(n * mult);
     }
 
     private static ContainerImage MapWslcImageListRow(WslcImageListRow row)
