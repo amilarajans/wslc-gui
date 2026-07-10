@@ -1,0 +1,179 @@
+<Page
+    x:Class="OrchardWin.App.Views.ImagesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:OrchardWin.App.Controls"
+    xmlns:vm="using:OrchardWin.App.ViewModels"
+    xmlns:local="using:OrchardWin.App.Views"
+    mc:Ignorable="d">
+
+    <Grid Padding="20" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Images" FontSize="24" FontWeight="SemiBold" />
+
+        <!-- Toolbar: local filter, sort, Docker Hub search, refresh -->
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="SearchBox" Grid.Column="0" PlaceholderText="Filter images by reference..."
+                     TextChanged="SearchBox_TextChanged" />
+
+            <ComboBox x:Name="SortCombo" Grid.Column="1" Width="120"
+                      SelectionChanged="SortCombo_SelectionChanged">
+                <ComboBoxItem Content="Name" Tag="Name" />
+                <ComboBoxItem Content="Tag" Tag="Tag" />
+                <ComboBoxItem Content="Size" Tag="Size" />
+            </ComboBox>
+
+            <Button x:Name="SortDirectionButton" Grid.Column="2" Click="SortDirectionButton_Click"
+                    ToolTipService.ToolTip="Toggle sort direction">
+                <FontIcon x:Name="SortDirectionGlyph" Glyph="&#xE74A;" FontSize="14" />
+            </Button>
+
+            <Button x:Name="SearchDockerHubButton" Grid.Column="3" Click="SearchDockerHubButton_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE721;" FontSize="14" />
+                    <TextBlock Text="Search Docker Hub" />
+                </StackPanel>
+            </Button>
+
+            <Button x:Name="RefreshButton" Grid.Column="4" Click="RefreshButton_Click"
+                    ToolTipService.ToolTip="Refresh">
+                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+            </Button>
+        </Grid>
+
+        <!-- Two-pane: list | detail -->
+        <Grid Grid.Row="2" ColumnSpacing="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="340" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
+                <ListView x:Name="ImagesListView" SelectionMode="Single"
+                          SelectionChanged="ImagesListView_SelectionChanged">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ImageRow">
+                            <controls:ListItemRow Icon="&#xE91B;"
+                                                   IconColor="{x:Bind IconColor}"
+                                                   PrimaryText="{x:Bind Name}"
+                                                   SecondaryLeftText="{x:Bind Tag}"
+                                                   SecondaryRightText="{x:Bind SizeText}">
+                                <controls:ListItemRow.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="Copy Image Reference" Click="OnCopyReferenceClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Remove Image" Click="OnRemoveImageClick" />
+                                    </MenuFlyout>
+                                </controls:ListItemRow.ContextFlyout>
+                            </controls:ListItemRow>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <ProgressRing x:Name="ImagesLoadingRing" IsActive="False" Width="28" Height="28"
+                              HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" />
+            </Grid>
+
+            <Border Grid.Column="1" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Margin="12,0" />
+
+            <Grid Grid.Column="2">
+                <TextBlock x:Name="NoSelectionText" Text="Select an image to view its details"
+                           Opacity="0.6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                <ScrollViewer x:Name="DetailScroller" Visibility="Collapsed">
+                    <StackPanel Spacing="16" Padding="4,0,4,20">
+                        <!-- Header: name + Launch/Delete actions, mirrors ImageDetailHeader.swift -->
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock x:Name="DetailNameText" FontSize="20" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="DetailReferenceText" Opacity="0.6" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="RunButton" Content="Launch image" Click="RunButton_Click" />
+                                <Button x:Name="DeleteButton" Content="Delete" Click="DeleteButton_Click"
+                                        Background="{ThemeResource SystemFillColorCriticalBrush}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <ProgressRing x:Name="InspectingRing" IsActive="False" HorizontalAlignment="Left"
+                                      Width="20" Height="20" />
+
+                        <InfoBar x:Name="InspectionErrorBar" Severity="Error" IsClosable="False" IsOpen="False" />
+
+                        <StackPanel x:Name="InspectionPanel" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Digest" Opacity="0.6" FontSize="12" />
+                                <TextBlock x:Name="DigestText" TextWrapping="Wrap" FontFamily="Cascadia Mono,Consolas" FontSize="12" />
+                            </StackPanel>
+
+                            <Grid ColumnSpacing="24">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Spacing="4">
+                                    <TextBlock Text="Media Type" Opacity="0.6" FontSize="12" />
+                                    <TextBlock x:Name="MediaTypeText" FontSize="13" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="Size" Opacity="0.6" FontSize="12" />
+                                    <TextBlock x:Name="InspectSizeText" FontSize="13" />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Platform Variants" FontSize="14" FontWeight="SemiBold" />
+                                <ItemsControl x:Name="VariantsList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="local:ImageVariantDisplay">
+                                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                    CornerRadius="6" Padding="12" Margin="0,0,0,8">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="{x:Bind Platform}" FontWeight="SemiBold" FontSize="13" />
+                                                    <TextBlock Text="{x:Bind SizeText}" Opacity="0.7" FontSize="12" />
+                                                    <TextBlock Text="{x:Bind EntrypointText}" FontSize="12"
+                                                               Visibility="{x:Bind HasEntrypoint}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{x:Bind CmdText}" FontSize="12"
+                                                               Visibility="{x:Bind HasCmd}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{x:Bind WorkingDirText}" FontSize="12"
+                                                               Visibility="{x:Bind HasWorkingDir}" />
+                                                    <TextBlock Text="{x:Bind UserText}" FontSize="12"
+                                                               Visibility="{x:Bind HasUser}" />
+                                                    <TextBlock Text="{x:Bind EnvText}" FontSize="12"
+                                                               Visibility="{x:Bind HasEnv}" TextWrapping="Wrap" Opacity="0.8" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

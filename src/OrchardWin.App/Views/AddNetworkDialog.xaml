@@ -1,0 +1,68 @@
+<ContentDialog
+    x:Class="OrchardWin.App.Views.AddNetworkDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:OrchardWin.App.Views"
+    mc:Ignorable="d"
+    Title="Add Network"
+    PrimaryButtonText="Create Network"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryButtonClick">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="480">
+        <StackPanel Spacing="20" Width="440">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Network Name" FontWeight="SemiBold" />
+                <TextBox x:Name="NameBox" PlaceholderText="e.g., my-network, app-network"
+                         TextChanged="OnNameChanged" />
+                <TextBlock Text="Enter a unique name for the network. Use only alphanumeric characters and hyphens."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Subnet (Optional)" FontWeight="SemiBold" />
+                <TextBox x:Name="SubnetBox" PlaceholderText="e.g., 192.168.1.0/24" />
+                <TextBlock Text="Specify a subnet range for the network. Leave empty to use automatic allocation."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Labels (Optional)" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="Add Label" Click="OnAddLabelClick" />
+                </Grid>
+
+                <TextBlock x:Name="NoLabelsText" Text="No labels added" FontSize="12" Opacity="0.6" />
+
+                <ItemsControl x:Name="LabelsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:NetworkLabelEntry">
+                            <Grid ColumnSpacing="8" Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" PlaceholderText="Key" Text="{x:Bind Key, Mode=TwoWay}" />
+                                <TextBlock Grid.Column="1" Text="=" VerticalAlignment="Center" Opacity="0.6" />
+                                <TextBox Grid.Column="2" PlaceholderText="Value" Text="{x:Bind Value, Mode=TwoWay}" />
+                                <Button Grid.Column="3" Content="Remove" Click="OnRemoveLabelClick" Tag="{x:Bind}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       FontSize="12" TextWrapping="Wrap" Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

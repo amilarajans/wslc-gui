@@ -1,0 +1,147 @@
+<Page
+    x:Class="OrchardWin.App.Views.SandboxesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:OrchardWin.App.Controls"
+    xmlns:vm="using:OrchardWin.App.ViewModels"
+    mc:Ignorable="d">
+
+    <!--
+        A sandbox is a derived view over a container wired to a local model - there is no
+        "sandbox" backend resource, just `SandboxDetection.DetectSandboxes` run over the
+        current containers/networks. Two-pane shape mirrors ModelsPage/Orchard's
+        SandboxesView: a list (middle column) and a detail pane (third column).
+    -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="340" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- List pane -->
+        <Grid Grid.Column="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="Sandboxes" FontSize="16" FontWeight="SemiBold" Padding="16,12,16,8" />
+
+            <Grid Grid.Row="1">
+                <StackPanel x:Name="EmptyStatePanel" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Spacing="8" Padding="24" MaxWidth="280">
+                    <FontIcon Glyph="&#xE72E;" FontSize="34" Opacity="0.6" HorizontalAlignment="Center" />
+                    <TextBlock Text="No sandboxes yet" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+                    <TextBlock Opacity="0.7" FontSize="12" TextAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Center"
+                               Text="Start Ollama (or any local model server) and run a container with OPENAI_BASE_URL or OLLAMA_HOST pointed at it - it appears here automatically with its endpoint and isolation." />
+                </StackPanel>
+
+                <ScrollViewer x:Name="ListScrollViewer">
+                    <StackPanel Spacing="4" Padding="0,0,0,12">
+                        <StackPanel x:Name="ManagedSection" Spacing="2">
+                            <TextBlock Text="WIRED BY ORCHARD-WIN" Opacity="0.6" FontSize="11" Padding="16,8,16,2" />
+                            <ListView x:Name="ManagedList" SelectionMode="Single" SelectionChanged="ManagedList_SelectionChanged" Padding="4,0">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SandboxRow">
+                                        <controls:ListItemRow Icon="{x:Bind Icon}" IconColor="{x:Bind IconColor}"
+                                                               PrimaryText="{x:Bind PrimaryText}"
+                                                               SecondaryLeftText="{x:Bind SecondaryText}" />
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+
+                        <StackPanel x:Name="DetectedSection" Spacing="2">
+                            <TextBlock Text="DETECTED" Opacity="0.6" FontSize="11" Padding="16,8,16,2" />
+                            <ListView x:Name="DetectedList" SelectionMode="Single" SelectionChanged="DetectedList_SelectionChanged" Padding="4,0">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SandboxRow">
+                                        <controls:ListItemRow Icon="{x:Bind Icon}" IconColor="{x:Bind IconColor}"
+                                                               PrimaryText="{x:Bind PrimaryText}"
+                                                               SecondaryLeftText="{x:Bind SecondaryText}" />
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- Detail pane -->
+        <Grid Grid.Column="1">
+            <TextBlock x:Name="DetailEmptyText" Text="Select a sandbox" Opacity="0.6"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+            <ScrollViewer x:Name="DetailScrollViewer" Visibility="Collapsed">
+                <StackPanel x:Name="DetailPanel" Spacing="14" Padding="24" MaxWidth="640" HorizontalAlignment="Left">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="StatusDot" Grid.Column="0" Width="9" Height="9" VerticalAlignment="Center" />
+                        <FontIcon x:Name="KindIcon" Grid.Column="1" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock x:Name="DetailTitleText" Grid.Column="2" FontSize="18" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <Border x:Name="IsolationBadge" Grid.Column="4" CornerRadius="10" Padding="8,2">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon x:Name="IsolationIcon" FontSize="11" />
+                                <TextBlock x:Name="IsolationText" FontSize="11" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Grid x:Name="EndpointRow" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Model endpoint" Opacity="0.6" FontSize="12" />
+                        <TextBlock x:Name="EndpointText" Grid.Column="1" FontFamily="Cascadia Mono,Consolas" FontSize="12"
+                                   IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                    </Grid>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Source" Opacity="0.6" FontSize="12" />
+                        <TextBlock x:Name="SourceText" Grid.Column="1" FontSize="12" />
+                    </Grid>
+
+                    <StackPanel x:Name="ActionsRow" Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ChatButton" Click="ChatButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE945;" FontSize="13" />
+                                <TextBlock Text="Chat…" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpenTerminalButton" Click="OpenTerminalButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE756;" FontSize="13" />
+                                <TextBlock Text="Open Terminal" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="StopButton" Click="StopButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE71A;" FontSize="13" />
+                                <TextBlock Text="Stop" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                        <TextBlock x:Name="IsolationExplanationText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>

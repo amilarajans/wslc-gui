@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Windows-only: WinUI 3 / Windows App SDK require the Windows desktop workload and MSBuild
+    targets that do not exist on macOS or Linux, so this project cannot be restored or built
+    from this machine (verified: `dotnet build` here fails at SDK resolution, as expected -
+    see ARCHITECTURE.md "What was and wasn't verified"). Copy the whole repo to Windows,
+    install the .NET 10 SDK + the "Windows App SDK" via `dotnet workload install`, or open the
+    solution in Visual Studio 2022 (17.14+) / Visual Studio 2026 with the "Windows application
+    development" workload, and build from there.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>OrchardWin.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260529003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- System tray icon (replaces Orchard's macOS menu-bar item) - works in both packaged
+         and unpackaged WinUI 3 apps, unlike the WinAppSDK's own (packaged-only) tray APIs. -->
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+    <!--
+      The native container API. Preview package, name/version best-effort from the WSL
+      public-preview announcement (see ARCHITECTURE.md) - pin the version to whatever
+      `nuget.org` / the WSL releases page actually publishes once you're on Windows.
+      Everything in this app calls WSL through wslc.exe (ProcessCommandRunner) instead, so
+      this reference is optional; add it only if/when you wire up WslContainerBackend as an
+      alternative to WslcCliContainerBackend.
+    -->
+    <!-- <PackageReference Include="Microsoft.WSL.Containers" Version="*" /> -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OrchardWin.Core\OrchardWin.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tray icon asset (generated 32x32 .ico); copied beside the exe so both ms-appx and
+         file-path resolution can find it. -->
+    <Content Include="Assets\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

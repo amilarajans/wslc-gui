@@ -1,0 +1,90 @@
+<Page
+    x:Class="OrchardWin.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:OrchardWin.App.ViewModels"
+    xmlns:models="using:OrchardWin.Core.Models"
+    mc:Ignorable="d">
+
+    <!--
+        Ported from Orchard's SettingsView: a TabView of General (app preferences) / System
+        (read-only wslc/WSL state). WinUI has no direct "Settings scene" analogue - this is
+        an ordinary Page, reached via the NavigationView's built-in Settings item (see
+        MainWindow.xaml), split General/System with a Pivot instead of a separate window.
+    -->
+    <Pivot Padding="20">
+        <PivotItem Header="General">
+            <ScrollViewer>
+                <StackPanel Spacing="20" MaxWidth="560" HorizontalAlignment="Left" Padding="0,16,0,0">
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Terminal Application" FontWeight="SemiBold" />
+                        <ComboBox x:Name="TerminalCombo" MinWidth="220" SelectionChanged="OnTerminalChanged" />
+                        <TextBlock Text="The terminal application to use when opening a shell into a container or machine."
+                                   Opacity="0.65" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Container Binary (wslc.exe)" FontWeight="SemiBold" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Name="BinaryPathText" FontFamily="Cascadia Mono,Consolas"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+                            <Button Grid.Column="1" Content="Choose…" Click="OnChooseBinaryClick" />
+                            <Button Grid.Column="2" x:Name="ResetBinaryButton" Content="Reset" Click="OnResetBinaryClick" Visibility="Collapsed" />
+                        </Grid>
+                        <TextBlock Text="Path to wslc.exe. Auto-detected from common locations; override if your binary lives elsewhere."
+                                   Opacity="0.65" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Default DNS Domain" FontWeight="SemiBold" />
+                        <ComboBox x:Name="DnsDomainCombo" MinWidth="220" DisplayMemberPath="Domain" SelectionChanged="OnDnsDomainChanged" />
+                        <TextBlock Text="If set, the local DNS domain used for containers with unqualified names. Managed as tagged entries in the Windows hosts file - the first change per session prompts for admin rights."
+                                   Opacity="0.65" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+
+        <PivotItem Header="System">
+            <ScrollViewer>
+                <StackPanel Spacing="16" MaxWidth="560" HorizontalAlignment="Left" Padding="0,16,0,0">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="WSL Version" FontWeight="SemiBold" />
+                        <TextBlock x:Name="WslVersionText" FontFamily="Cascadia Mono,Consolas" IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Kernel Version" FontWeight="SemiBold" />
+                        <TextBlock x:Name="KernelVersionText" FontFamily="Cascadia Mono,Consolas" IsTextSelectionEnabled="True" />
+                        <TextBlock Text="WSL ships one shared kernel per WSL install - unlike Apple's container tool, there is no per-machine kernel to swap here."
+                                   Opacity="0.65" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <TextBlock Text="Daemon Properties" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <ItemsControl x:Name="SystemPropertiesList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:SystemProperty">
+                                <Grid ColumnSpacing="12" Padding="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Id}" Opacity="0.7" FontSize="12" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayValue}" FontFamily="Cascadia Mono,Consolas" FontSize="12" IsTextSelectionEnabled="True" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="NoPropertiesText" Text="No daemon properties reported." Opacity="0.65" FontSize="12" Visibility="Collapsed" />
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+    </Pivot>
+</Page>

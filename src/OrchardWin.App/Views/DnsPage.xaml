@@ -1,0 +1,73 @@
+<Page
+    x:Class="OrchardWin.App.Views.DnsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:OrchardWin.App.Controls"
+    xmlns:vm="using:OrchardWin.App.ViewModels"
+    mc:Ignorable="d">
+
+    <Grid Padding="20" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="DNS Domains" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Click="OnAddDomainClick" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE710;" FontSize="14" />
+                    <TextBlock Text="Add Domain" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <StackPanel x:Name="LoadingPanel" Visibility="Collapsed" HorizontalAlignment="Center"
+                        VerticalAlignment="Center" Spacing="8">
+                <ProgressRing IsActive="True" Width="32" Height="32" />
+                <TextBlock Text="Loading DNS domains..." Opacity="0.6" FontSize="12" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel x:Name="EmptyPanel" Visibility="Collapsed" HorizontalAlignment="Center"
+                        VerticalAlignment="Center" Spacing="8">
+                <FontIcon Glyph="&#xE774;" FontSize="32" Opacity="0.5" HorizontalAlignment="Center" />
+                <TextBlock Text="No DNS Domains" FontSize="16" FontWeight="SemiBold" Opacity="0.6" HorizontalAlignment="Center" />
+                <TextBlock Text="Add a domain to get started" FontSize="12" Opacity="0.6" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <ListView x:Name="DomainsList" Visibility="Collapsed" SelectionMode="Single">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DnsDomainRow">
+                        <Grid>
+                            <Grid.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Make Default" Click="OnMakeDefaultClick"
+                                                    Tag="{x:Bind DomainName}" IsEnabled="{x:Bind CanManage}" />
+                                    <MenuFlyoutItem Text="Delete Domain" Click="OnDeleteDomainClick"
+                                                    Tag="{x:Bind DomainName}" IsEnabled="{x:Bind CanManage}">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE74D;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                </MenuFlyout>
+                            </Grid.ContextFlyout>
+                            <controls:ListItemRow
+                                Icon="&#xE774;"
+                                IconColor="{x:Bind IconColor}"
+                                PrimaryText="{x:Bind DomainName}"
+                                SecondaryLeftText="{x:Bind ContainerCountText}"
+                                SecondaryRightText="{x:Bind DefaultBadgeText}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Grid>
+    </Grid>
+</Page>

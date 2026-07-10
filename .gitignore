@@ -1,0 +1,75 @@
+## .NET build outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM64/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+project.lock.json
+project.fragment.lock.json
+artifacts/
+TestResults/
+*.nupkg
+*.snupkg
+*.dotCover
+*.coverage
+*.coveragexml
+*.lcov
+BenchmarkDotNet.Artifacts/
+
+## Visual Studio / VS Code / Rider
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+## OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## Local secrets / env
+*.local.json
+appsettings.*.local.json
+.env
+.env.*
+
+## Reference upstream (https://github.com/andrew-waters/orchard) — local only, do not publish
+_reference/
+
+## AI / agent tooling configs and sessions (local only)
+.claude/
+.claude/**
+CLAUDE.md
+**/CLAUDE.md
+.agents/
+.agents/**
+AGENTS.md
+**/AGENTS.md
+.cursor/
+.cursor/**
+.cursorrules
+.grok/
+.grok/**
+.codex/
+.codex/**
+.aider*
+.continue/
+.continue/**
+.windsurf/
+.windsurf/**
+.gemini/
+.gemini/**
+.copilot/
+.github/copilot-instructions.md
+.github/instructions/
+*.code-workspace

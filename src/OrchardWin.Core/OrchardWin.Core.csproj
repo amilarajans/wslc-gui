@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>OrchardWin.Core</RootNamespace>
+    <!-- Deliberately plain net10.0, not net10.0-windows: every type here compiles and
+         unit-tests on any OS. Windows-only interop (hosts file ACLs, UAC elevation,
+         registry) stays behind an interface and is implemented in the App project. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+</Project>

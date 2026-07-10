@@ -1,0 +1,76 @@
+<ContentDialog
+    x:Class="OrchardWin.App.Views.CreateMachineDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Create Machine"
+    PrimaryButtonText="Create Machine"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryButtonClick">
+
+    <!--
+        Ports CreateMachine.swift. There is no custom-kernel field here: MachineCreateSpec
+        (OrchardWin.Core.Models) has no KernelPath - the Windows Machine model documents
+        KernelPath as always null (WSL ships one kernel per WSL version, not a per-machine
+        swappable one), so the Swift original's "Custom Kernel (Optional)" field has nothing
+        to bind to on this platform and is intentionally dropped rather than faked.
+    -->
+    <ScrollViewer MaxHeight="480">
+        <StackPanel Spacing="16" Width="440">
+            <StackPanel Spacing="6">
+                <TextBlock Text="Image" FontWeight="SemiBold" />
+                <TextBox x:Name="ImageTextBox" PlaceholderText="e.g., geerlingguy/docker-ubuntu2204-ansible" />
+                <TextBlock Text="A machine boots the image's init system (systemd/openrc) as PID 1 at /sbin/init. Stock images (ubuntu, alpine, nginx, …) have no init and will boot then immediately stop."
+                           FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="Name" FontWeight="SemiBold" />
+                <TextBox x:Name="NameTextBox" PlaceholderText="e.g., dev-box" />
+                <TextBlock Text="Lowercase letters, digits, and hyphens (must start and end alphanumeric)."
+                           FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="6">
+                    <NumberBox x:Name="CpusBox" Header="CPUs" SpinButtonPlacementMode="Inline"
+                               SmallChange="1" LargeChange="1" Minimum="1" />
+                    <TextBlock x:Name="CpusCaption" FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="6">
+                    <NumberBox x:Name="MemoryBox" Header="Memory (GB)" SpinButtonPlacementMode="Inline"
+                               SmallChange="1" LargeChange="1" Minimum="1" />
+                    <TextBlock x:Name="MemoryCaption" FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="Home Directory Mount" FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <RadioButton x:Name="HomeMountRwRadio" Content="Read/Write" GroupName="CreateHomeMount" IsChecked="True" />
+                    <RadioButton x:Name="HomeMountRoRadio" Content="Read-Only" GroupName="CreateHomeMount" />
+                    <RadioButton x:Name="HomeMountNoneRadio" Content="None" GroupName="CreateHomeMount" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <CheckBox x:Name="VirtualizationCheck" Content="Enable nested virtualization" />
+                <TextBlock Text="Requires a CONFIG_KVM-capable kernel and a compatible host CPU."
+                           FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <CheckBox x:Name="SetDefaultCheck" Content="Set as default machine" />
+            <CheckBox x:Name="BootAfterCreateCheck" Content="Boot after creating" IsChecked="True" />
+
+            <TextBlock x:Name="ValidationText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       FontSize="12" TextWrapping="Wrap" Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

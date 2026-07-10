@@ -1,0 +1,45 @@
+<ContentDialog
+    x:Class="OrchardWin.App.Views.CreateModelServerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="New Model Server"
+    PrimaryButtonText="Start Server"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    IsPrimaryButtonEnabled="False"
+    PrimaryButtonClick="OnPrimaryButtonClick">
+
+    <!--
+        Ported from Orchard's CreateModelServerView. This app has no MLX (Apple-Silicon-only,
+        no Windows build), so "model" here is an Ollama model tag (e.g. "llama3.2") rather
+        than a Hugging Face MLX id, and the engine wrapped is `ollama serve` - see
+        ARCHITECTURE.md "Local AI & Sandboxes".
+    -->
+    <StackPanel Spacing="16" MinWidth="380">
+        <StackPanel Spacing="6">
+            <TextBlock Text="Model" FontWeight="SemiBold" FontSize="13" />
+            <TextBox x:Name="ModelBox" PlaceholderText="e.g. llama3.2" FontFamily="Cascadia Mono,Consolas"
+                     TextChanged="OnFieldChanged" />
+            <TextBlock Text="An Ollama model tag. It downloads on first start if not already pulled."
+                       Opacity="0.65" FontSize="11" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock Text="Port" FontWeight="SemiBold" FontSize="13" />
+            <TextBox x:Name="PortBox" Text="11434" TextChanged="OnFieldChanged" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <CheckBox x:Name="AllowContainersCheck" Content="Allow containers to reach it (bind 0.0.0.0)"
+                      IsChecked="True" Checked="OnFieldChanged" Unchecked="OnFieldChanged" />
+            <TextBlock x:Name="BindHintText" Opacity="0.65" FontSize="11" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <InfoBar x:Name="EngineWarningBar" Severity="Warning" Title="Ollama not found"
+                 Message="Install it from ollama.com/download, then reopen this dialog."
+                 IsOpen="False" IsClosable="False" />
+    </StackPanel>
+</ContentDialog>

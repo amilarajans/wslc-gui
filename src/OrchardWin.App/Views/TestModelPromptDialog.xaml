@@ -1,0 +1,57 @@
+<ContentDialog
+    x:Class="OrchardWin.App.Views.TestModelPromptDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    CloseButtonText="Close"
+    DefaultButton="Close">
+
+    <!--
+        A lightweight chat session against a model server - ported from Orchard's
+        TestModelPromptView. No streaming, no persistence: send a message, keep history, and
+        carry it forward each turn so the model has context.
+    -->
+    <Grid MinWidth="480" MinHeight="480" RowSpacing="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Padding="0,0,0,12">
+            <FontIcon Glyph="&#xE945;" FontSize="20" />
+            <StackPanel Spacing="2">
+                <TextBlock Text="Chat" FontWeight="SemiBold" />
+                <TextBlock x:Name="SubtitleText" Opacity="0.65" FontSize="12" />
+            </StackPanel>
+            <Button x:Name="NewChatButton" Content="New" Click="OnNewChatClick" Margin="12,0,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" x:Name="TranscriptScroller">
+            <StackPanel x:Name="TranscriptPanel" Spacing="12" Padding="4,4,4,12">
+                <TextBlock x:Name="EmptyHintText"
+                           Text="Send a message to start the conversation. History is kept and sent back each turn, so the model has context."
+                           Opacity="0.65" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Spacing="8" Padding="0,12,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Model" Opacity="0.65" FontSize="12" VerticalAlignment="Center" />
+                <TextBox x:Name="ModelBox" FontFamily="Cascadia Mono,Consolas" MinWidth="200" />
+            </StackPanel>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="Message…" AcceptsReturn="True"
+                         TextWrapping="Wrap" MaxHeight="80" KeyDown="OnInputKeyDown" />
+                <Button x:Name="SendButton" Grid.Column="1" Content="Send" Click="OnSendClick"
+                        Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Bottom" />
+            </Grid>
+        </StackPanel>
+    </Grid>
+</ContentDialog>

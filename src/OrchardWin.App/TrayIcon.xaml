@@ -1,0 +1,41 @@
+<tb:TaskbarIcon
+    x:Class="OrchardWin.App.TrayIcon"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tb="using:H.NotifyIcon"
+    mc:Ignorable="d"
+    ToolTipText="Orchard for Windows"
+    IconSource="ms-appx:///Assets/TrayIcon.ico"
+    MenuActivation="LeftOrRightClick"
+    NoLeftClickDelay="True"
+    LeftClickCommand="{x:Bind OpenCommand}">
+
+    <!--
+        System tray presence, replacing Orchard's macOS menu-bar extra
+        (MenuBarDashboard.swift) - simplified here to a compact text summary and a
+        per-container list instead of the original's custom-drawn CPU/memory donut rings
+        (WinUI has no equivalent lightweight vector-chart primitive used elsewhere in this
+        app; Sparkline covers line history, not a ring gauge, and drawing one from scratch
+        wasn't worth it for a tray flyout). VERIFY: H.NotifyIcon.WinUI's exact XAML surface
+        (element/attribute names below) against the installed package version once building
+        on Windows - the "using:H.NotifyIcon" namespace, MenuActivation/NoLeftClickDelay/
+        LeftClickCommand names, and ContextFlyout support are based on the package's public
+        examples, not a signature actually compiled here. VERIFY also the IconSource URI:
+        Assets/TrayIcon.ico is a real generated icon copied to the output directory (see the
+        csproj Content item), but whether `ms-appx:///` resolves in this unpackaged
+        (WindowsPackageType=None) configuration vs. needing a plain relative path or an
+        absolute AppContext.BaseDirectory path is untestable from macOS.
+    -->
+    <tb:TaskbarIcon.ContextFlyout>
+        <MenuFlyout>
+            <MenuFlyoutItem x:Name="OpenMenuItem" Text="Open Orchard for Windows" Click="OnOpenClick" />
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem x:Name="StartSystemMenuItem" Text="Start" Click="OnStartSystemClick" Visibility="Collapsed" />
+            <MenuFlyoutSeparator x:Name="StartSystemSeparator" Visibility="Collapsed" />
+            <MenuFlyoutItem Text="Exit" Click="OnExitClick" />
+        </MenuFlyout>
+    </tb:TaskbarIcon.ContextFlyout>
+
+</tb:TaskbarIcon>

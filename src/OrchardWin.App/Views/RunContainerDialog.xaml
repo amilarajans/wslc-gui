@@ -1,0 +1,114 @@
+<ContentDialog
+    x:Class="OrchardWin.App.Views.RunContainerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Run Container"
+    PrimaryButtonText="Run Container"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryButtonClick">
+
+    <!-- Ported from Orchard's RunContainerView + ContainerConfigForm (run mode only - this
+         dialog only ever creates, never edits, so the "edit mode" branches in the Swift
+         original have no counterpart here). -->
+    <Grid MinWidth="620" MinHeight="440">
+        <Pivot x:Name="ConfigPivot">
+            <PivotItem Header="Basic">
+                <ScrollViewer>
+                    <StackPanel Spacing="16" Padding="0,12,0,0">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Container Name" FontWeight="SemiBold" FontSize="13" />
+                            <TextBox x:Name="NameBox" TextChanged="OnNameChanged" />
+                            <TextBlock x:Name="NameErrorText" Foreground="Red" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Image" FontWeight="SemiBold" FontSize="13" />
+                            <TextBox x:Name="ImageBox" FontFamily="Cascadia Mono,Consolas" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="DNS Domain" FontWeight="SemiBold" FontSize="13" />
+                            <ComboBox x:Name="DnsDomainCombo" MinWidth="220" DisplayMemberPath="Domain" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Network" FontWeight="SemiBold" FontSize="13" />
+                            <ComboBox x:Name="NetworkCombo" MinWidth="220" />
+                        </StackPanel>
+
+                        <CheckBox x:Name="DetachedCheck" Content="Run in detached mode (background)" IsChecked="True" />
+                        <CheckBox x:Name="RemoveAfterStopCheck" Content="Remove container after it stops" />
+                    </StackPanel>
+                </ScrollViewer>
+            </PivotItem>
+
+            <PivotItem Header="Ports">
+                <Grid RowSpacing="12" Padding="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Button Grid.Row="0" Content="Add Port" Click="OnAddPortClick" />
+                    <ScrollViewer Grid.Row="1">
+                        <StackPanel x:Name="PortsPanel" Spacing="8" />
+                    </ScrollViewer>
+                </Grid>
+            </PivotItem>
+
+            <PivotItem Header="Volumes">
+                <Grid RowSpacing="12" Padding="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Button Grid.Row="0" Content="Add Volume" Click="OnAddVolumeClick" />
+                    <ScrollViewer Grid.Row="1">
+                        <StackPanel x:Name="VolumesPanel" Spacing="8" />
+                    </ScrollViewer>
+                </Grid>
+            </PivotItem>
+
+            <PivotItem Header="Environment">
+                <Grid RowSpacing="12" Padding="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Local Model Bridge - opt-in, additive only. -->
+                    <StackPanel Grid.Row="0" x:Name="BridgeSection" Spacing="6" Padding="0,0,0,8">
+                        <TextBlock Text="Local Model Bridge" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="Wire this container to an AI model server running on this PC. The container reaches it over its network gateway."
+                                   Opacity="0.65" FontSize="11" TextWrapping="Wrap" />
+                        <ComboBox x:Name="BridgeProviderCombo" MinWidth="280" SelectionChanged="OnBridgeProviderChanged" />
+                        <TextBlock x:Name="BridgePreviewText" FontFamily="Cascadia Mono,Consolas" FontSize="11" Visibility="Collapsed" IsTextSelectionEnabled="True" />
+                        <Button x:Name="InjectBridgeButton" Content="Add variables to Environment" Click="OnInjectBridgeClick" Visibility="Collapsed" />
+                    </StackPanel>
+
+                    <Button Grid.Row="1" Content="Add Variable" Click="OnAddEnvClick" />
+                    <ScrollViewer Grid.Row="2">
+                        <StackPanel x:Name="EnvPanel" Spacing="8" />
+                    </ScrollViewer>
+                </Grid>
+            </PivotItem>
+
+            <PivotItem Header="Advanced">
+                <StackPanel Spacing="16" Padding="0,12,0,0">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Working Directory" FontWeight="SemiBold" FontSize="13" />
+                        <TextBox x:Name="WorkingDirBox" PlaceholderText="/path/in/container" />
+                    </StackPanel>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Command Override" FontWeight="SemiBold" FontSize="13" />
+                        <TextBox x:Name="CommandOverrideBox" PlaceholderText="command arg1 arg2" />
+                    </StackPanel>
+                </StackPanel>
+            </PivotItem>
+        </Pivot>
+    </Grid>
+</ContentDialog>
