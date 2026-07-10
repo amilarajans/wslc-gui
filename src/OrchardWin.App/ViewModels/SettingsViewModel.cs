@@ -70,6 +70,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         await Services.DnsService.LoadAsync();
         RefreshFromSettings();
         RefreshDnsDomains();
+        // Always re-copy after load (same tab-reentry hydration as Images/Containers).
+        SystemProperties = new ObservableCollection<SystemProperty>(Services.SystemService.SystemProperties);
+        KernelInfo = Services.SystemService.KernelInfo;
     }
 
     private void RefreshFromSettings()

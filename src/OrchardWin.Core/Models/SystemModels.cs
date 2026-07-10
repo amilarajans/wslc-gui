@@ -25,6 +25,8 @@ public sealed record WslKernelInfo
 {
     public string? KernelVersion { get; init; }
     public string? WslVersion { get; init; }
+    public string? WslgVersion { get; init; }
+    public string? WindowsVersion { get; init; }
 }
 
 /// Terminal Orchard-Win can hand a container/machine shell off to. Replaces Orchard's

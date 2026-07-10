@@ -242,7 +242,13 @@ public sealed partial class SystemService : ObservableObject
         try
         {
             var result = await _runner.RunAsync("wsl.exe", ["--version"], ct);
-            KernelInfo = !result.Failed && result.Stdout is { } stdout ? ParseKernelInfo(stdout) : new WslKernelInfo();
+            // wsl may put text on stderr on some builds; use either stream.
+            var text = FirstNonEmpty(result.Stdout, result.Stderr);
+            KernelInfo = !string.IsNullOrWhiteSpace(text) ? ParseKernelInfo(text!) : new WslKernelInfo();
+            if (KernelInfo.WslVersion is null && KernelInfo.KernelVersion is null && !result.Failed)
+            {
+                Log.Containers.Error($"wsl --version produced unparseable output: {Preview(text)}");
+            }
         }
         catch (Exception error)
         {
@@ -255,33 +261,48 @@ public sealed partial class SystemService : ObservableObject
         }
     }
 
-    /// VERIFY: `wsl --version` output format/locale - this parses the documented
-    /// English/Windows-11-era "Label: value" line shape:
+    /// Parses `wsl --version` "Label: value" lines (English Windows 11 shape). Defensive for
+    /// locale variants and accidental UTF-16 null padding left after a mis-decode.
     ///   WSL version: 2.x.x.x
     ///   Kernel version: 5.x.x.x
-    ///   ...
-    /// Localized Windows builds may emit translated labels; parse defensively (unmatched
-    /// lines are simply ignored) rather than throwing on an unexpected format.
     internal static WslKernelInfo ParseKernelInfo(string stdout)
     {
         string? kernelVersion = null;
         string? wslVersion = null;
+        string? wslgVersion = null;
+        string? windowsVersion = null;
 
-        foreach (var rawLine in stdout.Split('\n'))
+        foreach (var rawLine in stdout.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries))
         {
-            var line = rawLine.Trim();
+            // Strip leftover NUL chars from UTF-16 mis-decoded as a single-byte encoding.
+            var line = rawLine.Replace("\0", "", StringComparison.Ordinal).Trim();
             var colon = line.IndexOf(':');
             if (colon < 0) continue;
 
-            var key = line[..colon].Trim().ToLowerInvariant();
+            var key = NormalizeVersionKey(line[..colon]);
             var value = line[(colon + 1)..].Trim();
+            if (value.Length == 0) continue;
 
-            if (key == "kernel version") kernelVersion = value;
-            else if (key == "wsl version") wslVersion = value;
+            if (key is "kernel version" or "kernel") kernelVersion = value;
+            else if (key is "wsl version" or "wsl") wslVersion = value;
+            else if (key is "wslg version" or "wslg") wslgVersion = value;
+            else if (key is "windows version" or "windows") windowsVersion = value;
         }
 
-        return new WslKernelInfo { KernelVersion = kernelVersion, WslVersion = wslVersion };
+        return new WslKernelInfo
+        {
+            KernelVersion = kernelVersion,
+            WslVersion = wslVersion,
+            WslgVersion = wslgVersion,
+            WindowsVersion = windowsVersion,
+        };
     }
+
+    private static string NormalizeVersionKey(string key) =>
+        key.Replace("\0", "", StringComparison.Ordinal)
+            .Trim()
+            .ToLowerInvariant()
+            .Replace("  ", " ", StringComparison.Ordinal);
 
     // MARK: - System properties
 
@@ -293,39 +314,111 @@ public sealed partial class SystemService : ObservableObject
             _alertCenter.Dismiss();
         }
 
-        // Reached on a background poll too - only alert on a user-initiated load.
-        var source = showLoading ? AlertSource.User : AlertSource.Background;
-
-        ProcessResult result;
+        // Real wslc has no `system property list` (only `system session`). Build a useful
+        // read-only property table from `wsl --version`, `wslc version`, and `wsl --status`.
         try
         {
-            // VERIFY: `wslc system property list --format=json` subcommand/flag spelling -
-            // best-effort mirror of Apple's `container system property list`.
-            result = await _runner.RunAsync(_settings.SafeContainerBinaryPath(), ["system", "property", "list", "--format=json"], ct);
+            var props = new List<SystemProperty>();
+
+            var versionResult = await _runner.RunAsync("wsl.exe", ["--version"], ct);
+            var versionText = FirstNonEmpty(versionResult.Stdout, versionResult.Stderr);
+            if (!string.IsNullOrWhiteSpace(versionText))
+            {
+                foreach (var rawLine in versionText.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var line = rawLine.Replace("\0", "", StringComparison.Ordinal).Trim();
+                    var colon = line.IndexOf(':');
+                    if (colon < 0) continue;
+                    var id = line[..colon].Trim();
+                    var value = line[(colon + 1)..].Trim();
+                    if (id.Length == 0 || value.Length == 0) continue;
+                    props.Add(new SystemProperty
+                    {
+                        Id = id,
+                        Type = PropertyType.String,
+                        Value = value,
+                        Description = "From wsl --version",
+                    });
+                }
+
+                // Keep KernelInfo in sync when properties load first / alone.
+                var parsed = ParseKernelInfo(versionText);
+                if (parsed.WslVersion is not null || parsed.KernelVersion is not null)
+                    KernelInfo = parsed;
+            }
+
+            var wslcPath = _settings.SafeContainerBinaryPath();
+            var wslcResult = await _runner.RunAsync(wslcPath, ["version"], ct);
+            var wslcText = FirstNonEmpty(wslcResult.Stdout, wslcResult.Stderr)?.Trim();
+            if (!string.IsNullOrWhiteSpace(wslcText))
+            {
+                // "wslc 2.9.3.0" → take last token as version.
+                var parts = wslcText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                var wslcVersion = parts.Length > 0 ? parts[^1] : wslcText;
+                props.Add(new SystemProperty
+                {
+                    Id = "wslc version",
+                    Type = PropertyType.String,
+                    Value = wslcVersion,
+                    Description = "From wslc version",
+                });
+                ContainerVersion = wslcVersion;
+                ParsedContainerVersion = wslcVersion;
+            }
+
+            var statusResult = await _runner.RunAsync("wsl.exe", ["--status"], ct);
+            var statusText = FirstNonEmpty(statusResult.Stdout, statusResult.Stderr);
+            if (!string.IsNullOrWhiteSpace(statusText))
+            {
+                foreach (var rawLine in statusText.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var line = rawLine.Replace("\0", "", StringComparison.Ordinal).Trim();
+                    var colon = line.IndexOf(':');
+                    if (colon < 0) continue;
+                    var id = line[..colon].Trim();
+                    var value = line[(colon + 1)..].Trim();
+                    if (id.Length == 0 || value.Length == 0) continue;
+                    props.Add(new SystemProperty
+                    {
+                        Id = id,
+                        Type = PropertyType.String,
+                        Value = value,
+                        Description = "From wsl --status",
+                    });
+                }
+            }
+
+            props.Add(new SystemProperty
+            {
+                Id = "wslc path",
+                Type = PropertyType.String,
+                Value = wslcPath,
+                Description = "Resolved container CLI path",
+            });
+
+            SystemProperties = new ObservableCollection<SystemProperty>(props);
         }
         catch (Exception error)
         {
-            _alertCenter.Error($"Failed to load system properties: {error.Message}", source);
-            IsSystemPropertiesLoading = false;
-            return;
-        }
-
-        if (result.Failed)
-        {
-            _alertCenter.Error(OrchardWinException.CliFailed("system property list", result.ExitCode, result.Stderr), source);
-            IsSystemPropertiesLoading = false;
-            return;
-        }
-
-        if (result.Stdout is not { } output)
-        {
+            Log.Containers.Error($"Failed to load system properties: {error.Message}");
+            if (showLoading)
+                _alertCenter.Error($"Failed to load system properties: {error.Message}");
             SystemProperties = [];
-            IsSystemPropertiesLoading = false;
-            return;
         }
+        finally
+        {
+            IsSystemPropertiesLoading = false;
+        }
+    }
 
-        SystemProperties = new ObservableCollection<SystemProperty>(CliParsers.ParseSystemProperties(output));
-        IsSystemPropertiesLoading = false;
+    private static string? FirstNonEmpty(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) ? a : !string.IsNullOrWhiteSpace(b) ? b : null;
+
+    private static string Preview(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return "(empty)";
+        var cleaned = text.Replace("\0", "\\0", StringComparison.Ordinal);
+        return cleaned.Length > 120 ? cleaned[..120] + "…" : cleaned;
     }
 
     /// Optimistically record `value` for a property already in the loaded list, e.g. so a UI

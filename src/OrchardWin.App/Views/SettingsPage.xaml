@@ -66,8 +66,12 @@
                         <TextBlock Text="WSL ships one shared kernel per WSL install - unlike Apple's container tool, there is no per-machine kernel to swap here."
                                    Opacity="0.65" FontSize="12" TextWrapping="Wrap" />
                     </StackPanel>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Windows Version" FontWeight="SemiBold" />
+                        <TextBlock x:Name="WindowsVersionText" FontFamily="Cascadia Mono,Consolas" IsTextSelectionEnabled="True" />
+                    </StackPanel>
 
-                    <TextBlock Text="Daemon Properties" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <TextBlock Text="System details" FontWeight="SemiBold" Margin="0,8,0,0" />
                     <ItemsControl x:Name="SystemPropertiesList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="models:SystemProperty">

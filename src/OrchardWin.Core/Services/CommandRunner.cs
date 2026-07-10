@@ -36,23 +36,70 @@ public sealed class ProcessCommandRunner : ICommandRunner
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
+            // We decode raw bytes ourselves (wsl.exe --version is UTF-16 LE without a BOM;
+            // treating that as the default console encoding produces a string full of \0).
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
         foreach (var arg in arguments) psi.ArgumentList.Add(arg);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
 
-        // Drain both streams concurrently *before* awaiting exit: a child that writes more
-        // than the pipe buffer would otherwise block forever waiting for us to read, and
-        // we'd block forever awaiting exit - the same deadlock Orchard's Process wrapper
-        // guards against on macOS.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        // Drain both streams as raw bytes concurrently *before* awaiting exit: a child that
+        // writes more than the pipe buffer would otherwise block forever waiting for us to
+        // read, and we'd block forever awaiting exit.
+        var stdoutTask = ReadAllBytesAsync(process.StandardOutput.BaseStream, ct);
+        var stderrTask = ReadAllBytesAsync(process.StandardError.BaseStream, ct);
         await process.WaitForExitAsync(ct);
-        var stdout = (await stdoutTask).TrimEnd('\n', '\r');
-        var stderr = (await stderrTask).TrimEnd('\n', '\r');
+        var stdout = DecodeConsoleOutput(await stdoutTask).TrimEnd('\n', '\r', '\0');
+        var stderr = DecodeConsoleOutput(await stderrTask).TrimEnd('\n', '\r', '\0');
 
-        return new ProcessResult(process.ExitCode, stdout, stderr);
+        return new ProcessResult(
+            process.ExitCode,
+            string.IsNullOrEmpty(stdout) ? null : stdout,
+            string.IsNullOrEmpty(stderr) ? null : stderr);
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, ct).ConfigureAwait(false);
+        return ms.ToArray();
+    }
+
+    /// Decode CLI stdout/stderr. <c>wsl.exe --version</c> (and some other WSL tools) emit
+    /// UTF-16 LE without a BOM; most other tools (including <c>wslc</c>) emit UTF-8.
+    internal static string DecodeConsoleOutput(byte[] bytes)
+    {
+        if (bytes.Length == 0) return "";
+
+        // BOM detection
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+
+        if (LooksLikeUtf16Le(bytes))
+            return Encoding.Unicode.GetString(bytes);
+
+        return Encoding.UTF8.GetString(bytes);
+    }
+
+    /// Heuristic: for primarily-ASCII content, UTF-16 LE has 0x00 on every odd index.
+    internal static bool LooksLikeUtf16Le(byte[] bytes)
+    {
+        if (bytes.Length < 4 || bytes.Length % 2 != 0) return false;
+        var sample = Math.Min(bytes.Length, 64);
+        var zeroOdds = 0;
+        var pairs = sample / 2;
+        for (var i = 1; i < sample; i += 2)
+        {
+            if (bytes[i] == 0) zeroOdds++;
+        }
+        return zeroOdds >= pairs * 0.7;
     }
 
     /// Elevated processes launched via the shell (`UseShellExecute = true`, `Verb = "runas"`)

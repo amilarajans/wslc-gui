@@ -53,6 +53,7 @@ public sealed partial class SettingsPage : Page
 
         WslVersionText.Text = _viewModel.KernelInfo.WslVersion ?? "Unknown";
         KernelVersionText.Text = _viewModel.KernelInfo.KernelVersion ?? "Unknown";
+        WindowsVersionText.Text = _viewModel.KernelInfo.WindowsVersion ?? "Unknown";
 
         SystemPropertiesList.ItemsSource = _viewModel.SystemProperties;
         NoPropertiesText.Visibility = _viewModel.SystemProperties.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
