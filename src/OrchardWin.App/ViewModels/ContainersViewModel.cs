@@ -63,14 +63,36 @@ public sealed partial class ContainersViewModel : ObservableObject
         _services = services;
         _services.ContainerListService.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ContainerListService.Containers))
+            if (e.PropertyName is null
+                or nameof(ContainerListService.Containers)
+                or nameof(ContainerListService.LoadingContainers))
             {
-                Refresh();
-                ReconcileSelectedContainer();
+                if (e.PropertyName is null or nameof(ContainerListService.Containers))
+                {
+                    Refresh();
+                    ReconcileSelectedContainer();
+                }
+
+                // Surface busy-state so the page re-enables Start/Stop after an operation.
+                OnPropertyChanged(nameof(IsSelectedBusy));
+                NotifyLifecycleCommandsCanExecuteChanged();
             }
         };
         _services.StatsService.PropertyChanged += (_, _) => RaiseStatsChanged();
+        _services.AlertCenter.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null or nameof(AlertCenter.Current))
+                OnPropertyChanged(nameof(AlertMessage));
+        };
     }
+
+    /// True while the selected container has a lifecycle op in flight (start/stop/remove).
+    public bool IsSelectedBusy =>
+        SelectedContainer is not null &&
+        _services.ContainerListService.LoadingContainers.Contains(SelectedContainer.Configuration.Id);
+
+    /// Latest user-facing error from AlertCenter (empty when dismissed/cleared).
+    public string? AlertMessage => _services.AlertCenter.Current?.Message;
 
     public Task LoadAsync() => _services.ContainerListService.LoadAsync(showLoading: true);
 
@@ -82,7 +104,23 @@ public sealed partial class ContainersViewModel : ObservableObject
     partial void OnSearchTextChanged(string value) => Refresh();
     partial void OnShowOnlyRunningChanged(bool value) => Refresh();
     partial void OnSortOptionChanged(ContainerSortOption value) => Refresh();
-    partial void OnSelectedContainerChanged(Container? value) => RaiseStatsChanged();
+
+    partial void OnSelectedContainerChanged(Container? value)
+    {
+        RaiseStatsChanged();
+        // CommunityToolkit caches CanExecute; without this, Start/Stop stay disabled after the
+        // first selection (buttons look enabled via UpdateDetailPane, but Execute is a no-op).
+        NotifyLifecycleCommandsCanExecuteChanged();
+    }
+
+    private void NotifyLifecycleCommandsCanExecuteChanged()
+    {
+        StartSelectedCommand.NotifyCanExecuteChanged();
+        StopSelectedCommand.NotifyCanExecuteChanged();
+        ForceStopSelectedCommand.NotifyCanExecuteChanged();
+        RemoveSelectedCommand.NotifyCanExecuteChanged();
+        OpenTerminalSelectedCommand.NotifyCanExecuteChanged();
+    }
 
     public void Refresh()
     {
@@ -198,25 +236,51 @@ public sealed partial class ContainersViewModel : ObservableObject
 
     private bool HasSelection => SelectedContainer is not null;
 
-    [RelayCommand(CanExecute = nameof(HasSelection))]
-    private Task StartSelectedAsync() =>
-        SelectedContainer is null ? Task.CompletedTask : _services.ContainerListService.StartContainerAsync(SelectedContainer.Configuration.Id);
+    /// Public entry points used by the page (in addition to generated *Command properties).
+    /// Prefer these from click handlers so a stale CanExecute cache can never swallow the action.
+    public Task StartSelectedContainerAsync() => StartSelectedAsync();
+    public Task StopSelectedContainerAsync() => StopSelectedAsync();
+    public Task ForceStopSelectedContainerAsync() => ForceStopSelectedAsync();
+    public Task RemoveSelectedContainerAsync() => RemoveSelectedAsync();
+    public Task OpenTerminalSelectedContainerAsync() => OpenTerminalSelectedAsync();
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
-    private Task StopSelectedAsync() =>
-        SelectedContainer is null ? Task.CompletedTask : _services.ContainerListService.StopContainerAsync(SelectedContainer.Configuration.Id);
+    private async Task StartSelectedAsync()
+    {
+        if (SelectedContainer is null) return;
+        // Prefer name when available - wslc accepts either; name is stable in the UI.
+        var id = SelectedContainer.Configuration.Id;
+        await _services.ContainerListService.StartContainerAsync(id);
+    }
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
-    private Task ForceStopSelectedAsync() =>
-        SelectedContainer is null ? Task.CompletedTask : _services.ContainerListService.ForceStopContainerAsync(SelectedContainer.Configuration.Id);
+    private async Task StopSelectedAsync()
+    {
+        if (SelectedContainer is null) return;
+        await _services.ContainerListService.StopContainerAsync(SelectedContainer.Configuration.Id);
+    }
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
-    private Task RemoveSelectedAsync() =>
-        SelectedContainer is null ? Task.CompletedTask : _services.ContainerListService.RemoveContainerAsync(SelectedContainer.Configuration.Id);
+    private async Task ForceStopSelectedAsync()
+    {
+        if (SelectedContainer is null) return;
+        await _services.ContainerListService.ForceStopContainerAsync(SelectedContainer.Configuration.Id);
+    }
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
-    private Task OpenTerminalSelectedAsync() =>
-        SelectedContainer is null ? Task.CompletedTask : _services.TerminalLauncher.OpenShellAsync(ShellTargetKind.Container, SelectedContainer.Configuration.Id);
+    private async Task RemoveSelectedAsync()
+    {
+        if (SelectedContainer is null) return;
+        await _services.ContainerListService.RemoveContainerAsync(SelectedContainer.Configuration.Id);
+    }
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private async Task OpenTerminalSelectedAsync()
+    {
+        if (SelectedContainer is null) return;
+        await _services.TerminalLauncher.OpenShellAsync(
+            ShellTargetKind.Container, SelectedContainer.Configuration.Id);
+    }
 
     // MARK: - Bulk actions (right-click context menu, possibly multi-selected)
 

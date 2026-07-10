@@ -61,28 +61,24 @@ public sealed class WslcCliContainerBackend : IContainerBackend
 
     public async Task KillContainerAsync(string id, int signal, CancellationToken ct = default)
     {
-        // VERIFY: `container kill` with `--signal <n>` mirrors `docker kill --signal=N id`;
-        // Orchard's own client accepts the signal as a name/number string too.
+        // Real wslc: `container kill --signal <n|NAME> <id>` (verified).
         var result = await RunAsync(["container", "kill", "--signal", signal.ToString(), id], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("container kill", result.ExitCode, result.Stderr);
     }
 
     public async Task DeleteContainerAsync(string id, bool force, CancellationToken ct = default)
     {
-        // VERIFY: `container rm` (Docker-familiar mirror per task brief).
-        var args = new List<string> { "container", "rm" };
+        // Real wslc: `container remove` (`rm`/`delete` aliases).
+        var args = new List<string> { "container", "remove" };
         if (force) args.Add("--force");
         args.Add(id);
         var result = await RunAsync(args, ct);
-        if (result.Failed) throw OrchardWinException.CliFailed("container rm", result.ExitCode, result.Stderr);
+        if (result.Failed) throw OrchardWinException.CliFailed("container remove", result.ExitCode, result.Stderr);
     }
 
     public async Task BootstrapAndStartAsync(string id, CancellationToken ct = default)
     {
-        // Orchard's bootstrapAndStart is the two-phase "create, then bootstrap+start" second
-        // half, used to (re)start a container that already exists but isn't running. The
-        // CLI-shelling equivalent of that is simply starting the existing container.
-        // VERIFY: `container start` - not in the confirmed subcommand list.
+        // Real wslc: `container start <id|name>` (verified against 2.9.x).
         var result = await RunAsync(["container", "start", id], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("container start", result.ExitCode, result.Stderr);
     }

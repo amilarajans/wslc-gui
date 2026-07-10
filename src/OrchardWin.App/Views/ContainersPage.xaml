@@ -8,14 +8,25 @@
     xmlns:vm="using:OrchardWin.App.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="16" ColumnSpacing="12">
+    <Grid Padding="16" ColumnSpacing="12" RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="300" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
+        <InfoBar x:Name="AlertBar"
+                 Grid.Row="0" Grid.ColumnSpan="2"
+                 Severity="Error"
+                 IsOpen="False"
+                 IsClosable="True"
+                 CloseButtonClick="OnAlertBarClose" />
+
         <!-- List pane -->
-        <Grid Grid.Column="0" RowSpacing="8">
+        <Grid Grid.Row="1" Grid.Column="0" RowSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -76,7 +87,7 @@
         </Grid>
 
         <!-- Detail pane -->
-        <Grid Grid.Column="1">
+        <Grid Grid.Row="1" Grid.Column="1">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />

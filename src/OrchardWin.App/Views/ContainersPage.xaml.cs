@@ -82,7 +82,18 @@ public sealed partial class ContainersPage : Page
             _isRestoringSelection = false;
         }
 
+        var alert = _viewModel.AlertMessage;
+        AlertBar.IsOpen = !string.IsNullOrEmpty(alert);
+        AlertBar.Message = alert ?? "";
+        AlertBar.Title = string.IsNullOrEmpty(alert) ? "" : "Error";
+
         UpdateDetailPane();
+    }
+
+    private void OnAlertBarClose(InfoBar sender, object args)
+    {
+        _viewModel?.Services.AlertCenter.Dismiss();
+        AlertBar.IsOpen = false;
     }
 
     private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
@@ -170,11 +181,48 @@ public sealed partial class ContainersPage : Page
         await dialog.ShowAsync();
     }
 
-    private void OnStartClick(object sender, RoutedEventArgs e) => _viewModel?.StartSelectedCommand.Execute(null);
-    private void OnStopClick(object sender, RoutedEventArgs e) => _viewModel?.StopSelectedCommand.Execute(null);
-    private void OnForceStopClick(object sender, RoutedEventArgs e) => _viewModel?.ForceStopSelectedCommand.Execute(null);
-    private void OnTerminalClick(object sender, RoutedEventArgs e) => _viewModel?.OpenTerminalSelectedCommand.Execute(null);
-    private void OnRemoveClick(object sender, RoutedEventArgs e) => _viewModel?.RemoveSelectedCommand.Execute(null);
+    // Call ViewModel methods directly (not RelayCommand.Execute): CanExecute can lag behind
+    // selection until NotifyCanExecuteChanged runs, which previously made Start look enabled
+    // while silently no-oping.
+    private async void OnStartClick(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null) return;
+        StartButton.IsEnabled = false;
+        try { await _viewModel.StartSelectedContainerAsync(); }
+        finally { UpdateDetailPane(); }
+    }
+
+    private async void OnStopClick(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null) return;
+        StopButton.IsEnabled = false;
+        ForceStopButton.IsEnabled = false;
+        try { await _viewModel.StopSelectedContainerAsync(); }
+        finally { UpdateDetailPane(); }
+    }
+
+    private async void OnForceStopClick(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null) return;
+        ForceStopButton.IsEnabled = false;
+        StopButton.IsEnabled = false;
+        try { await _viewModel.ForceStopSelectedContainerAsync(); }
+        finally { UpdateDetailPane(); }
+    }
+
+    private async void OnTerminalClick(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null) return;
+        await _viewModel.OpenTerminalSelectedContainerAsync();
+    }
+
+    private async void OnRemoveClick(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null) return;
+        RemoveButton.IsEnabled = false;
+        try { await _viewModel.RemoveSelectedContainerAsync(); }
+        finally { UpdateDetailPane(); }
+    }
 
     private void UpdateDetailPane()
     {
@@ -192,14 +240,19 @@ public sealed partial class ContainersPage : Page
         DetailScroller.Visibility = Visibility.Visible;
 
         var running = ContainersViewModel.IsRunning(container);
+        var displayName = !string.IsNullOrWhiteSpace(container.Configuration.Hostname)
+            ? container.Configuration.Hostname!
+            : container.Configuration.Id;
         DetailIcon.Foreground = new SolidColorBrush(running ? Colors.LimeGreen : Colors.Gray);
-        DetailNameText.Text = container.Configuration.Id;
-        DetailStatusText.Text = $"{container.Status} - {container.Configuration.Image.Reference}";
+        DetailNameText.Text = displayName;
+        DetailStatusText.Text = $"{container.Status} · {container.Configuration.Image.Reference}";
 
-        StartButton.IsEnabled = !running;
-        StopButton.IsEnabled = running;
-        ForceStopButton.IsEnabled = running;
-        TerminalButton.IsEnabled = running;
+        var busy = _viewModel.IsSelectedBusy;
+        StartButton.IsEnabled = !running && !busy;
+        StopButton.IsEnabled = running && !busy;
+        ForceStopButton.IsEnabled = running && !busy;
+        TerminalButton.IsEnabled = running && !busy;
+        RemoveButton.IsEnabled = !busy;
 
         DetailContent.Children.Clear();
 
