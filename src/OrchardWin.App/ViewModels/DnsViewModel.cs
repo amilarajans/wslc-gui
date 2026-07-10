@@ -55,7 +55,12 @@ public sealed partial class DnsViewModel : ObservableObject
 
     public bool IsDnsLoading => _services.DnsService.IsDnsLoading;
 
-    public Task LoadAsync() => _services.DnsService.LoadAsync();
+    public async Task LoadAsync()
+    {
+        await _services.DnsService.LoadAsync();
+        // Re-project even when the hosts file contents are unchanged.
+        Refresh();
+    }
 
     public Task SetDefaultAsync(string domain) => _services.DnsService.SetDefaultAsync(domain);
 

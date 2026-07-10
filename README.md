@@ -72,6 +72,16 @@ dotnet build OrchardWin.sln -c Debug -p:Platform=x64
 dotnet run --project src/OrchardWin.App/OrchardWin.App.csproj -c Debug -p:Platform=x64
 ```
 
+## Tests
+
+```powershell
+dotnet test tests/OrchardWin.Core.Tests/OrchardWin.Core.Tests.csproj
+dotnet test tests/OrchardWin.App.Tests/OrchardWin.App.Tests.csproj -p:Platform=x64
+```
+
+Core tests cover service load / equality short-circuit. App tests cover ViewModel tab re-entry
+(hydration after navigation) so Images/Containers don’t go blank when switching sections.
+
 Or open `OrchardWin.sln` in Visual Studio and run **OrchardWin.App** (x64).
 
 ## Project layout

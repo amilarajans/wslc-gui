@@ -66,7 +66,12 @@ public sealed partial class MachinesViewModel : ObservableObject
 
     partial void OnSelectedMachineIdChanged(string? value) => OnPropertyChanged(nameof(SelectedMachine));
 
-    public Task LoadAsync() => Service.LoadAsync();
+    public async Task LoadAsync()
+    {
+        await Service.LoadAsync();
+        // MachineService may leave Machines unchanged; always rebuild rows for tab re-entry.
+        RebuildRows();
+    }
 
     public async Task BootSelectedAsync()
     {

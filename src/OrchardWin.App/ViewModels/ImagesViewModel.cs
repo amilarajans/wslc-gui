@@ -69,7 +69,11 @@ public sealed partial class ImagesViewModel : ObservableObject
         // rather than this ViewModel polling on its own.
         _services.ImageService.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is null or nameof(Core.Services.ImageService.Images))
+            // Include IsImagesLoading: LoadAsync may leave Images unchanged (equality short-
+            // circuit), so without this a re-navigated page would never rebuild Rows.
+            if (e.PropertyName is null
+                or nameof(Core.Services.ImageService.Images)
+                or nameof(Core.Services.ImageService.IsImagesLoading))
                 Refresh();
         };
         _services.ContainerListService.PropertyChanged += (_, e) =>
@@ -77,9 +81,19 @@ public sealed partial class ImagesViewModel : ObservableObject
             if (e.PropertyName is null or nameof(Core.Services.ContainerListService.Containers))
                 Refresh();
         };
+
+        // Critical: hydrate from any already-loaded service state. Frame navigation constructs
+        // a new ViewModel each visit; if LoadAsync finds unchanged images it won't re-raise
+        // Images PropertyChanged, and Rows would stay empty (blank page after tab switch).
+        Refresh();
     }
 
-    public Task LoadAsync() => _services.ImageService.LoadAsync(showLoading: true);
+    public async Task LoadAsync()
+    {
+        await _services.ImageService.LoadAsync(showLoading: true);
+        // Always re-project after load — service may short-circuit when the list is unchanged.
+        Refresh();
+    }
 
     partial void OnSearchTextChanged(string value) => Refresh();
     partial void OnSortByChanged(ImageSortOption value) => Refresh();
@@ -92,7 +106,11 @@ public sealed partial class ImagesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private Task RefreshAsync() => _services.ImageService.LoadAsync(showLoading: true);
+    private async Task RefreshAsync()
+    {
+        await _services.ImageService.LoadAsync(showLoading: true);
+        Refresh();
+    }
 
     [RelayCommand]
     private async Task DeleteAsync(ImageRow? row)

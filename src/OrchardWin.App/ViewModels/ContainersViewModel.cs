@@ -84,6 +84,9 @@ public sealed partial class ContainersViewModel : ObservableObject
             if (e.PropertyName is null or nameof(AlertCenter.Current))
                 OnPropertyChanged(nameof(AlertMessage));
         };
+
+        // Hydrate from already-loaded ContainerListService data (tab re-entry / navigation).
+        Refresh();
     }
 
     /// True while the selected container has a lifecycle op in flight (start/stop/remove).
@@ -94,12 +97,23 @@ public sealed partial class ContainersViewModel : ObservableObject
     /// Latest user-facing error from AlertCenter (empty when dismissed/cleared).
     public string? AlertMessage => _services.AlertCenter.Current?.Message;
 
-    public Task LoadAsync() => _services.ContainerListService.LoadAsync(showLoading: true);
+    public async Task LoadAsync()
+    {
+        await _services.ContainerListService.LoadAsync(showLoading: true);
+        // Always re-project; service equality short-circuit won't raise Containers changed.
+        Refresh();
+        ReconcileSelectedContainer();
+    }
 
     /// Quiet background poll - mirrors the Swift view's onAppear refresh loop.
     /// ContainerListService has no self-timer of its own (unlike StatsService), so the page
     /// drives this on a DispatcherTimer while visible.
-    public Task PollAsync() => _services.ContainerListService.LoadAsync(showLoading: false);
+    public async Task PollAsync()
+    {
+        await _services.ContainerListService.LoadAsync(showLoading: false);
+        Refresh();
+        ReconcileSelectedContainer();
+    }
 
     partial void OnSearchTextChanged(string value) => Refresh();
     partial void OnShowOnlyRunningChanged(bool value) => Refresh();

@@ -67,7 +67,12 @@ public sealed partial class NetworksViewModel : ObservableObject
 
     public bool IsNetworksLoading => _services.NetworkService.IsNetworksLoading;
 
-    public Task LoadAsync() => _services.NetworkService.LoadAsync();
+    public async Task LoadAsync()
+    {
+        await _services.NetworkService.LoadAsync();
+        // Re-project even when NetworkService short-circuits an unchanged list.
+        Refresh();
+    }
 
     public int ConnectedContainerCount(string networkId) =>
         _services.ContainerListService.Containers.Count(c => c.Networks.Any(n => n.Network == networkId));
