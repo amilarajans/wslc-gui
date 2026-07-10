@@ -56,7 +56,15 @@
                         <TextBlock Grid.Column="4" Text="Network" Opacity="0.6" FontSize="12" />
                         <TextBlock Grid.Column="5" Text="Disk" Opacity="0.6" FontSize="12" />
                     </Grid>
+                    <!-- SelectionMode None + stable ItemsSource: rows update via OneWay x:Bind, no item recycle flicker -->
                     <ListView x:Name="ContainerRowsList" SelectionMode="None">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="MinHeight" Value="0" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:UtilisationRow">
                                 <Grid ColumnSpacing="8" Padding="6,4">
@@ -68,18 +76,18 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind Status}" Opacity="0.7" />
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" Opacity="0.7" />
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                        <controls:Sparkline Values="{x:Bind CpuHistory}" Width="40" Height="18" StrokeColor="DodgerBlue" />
-                                        <TextBlock Text="{x:Bind CpuPercentText}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
+                                        <controls:Sparkline Values="{x:Bind CpuHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="DodgerBlue" />
+                                        <TextBlock Text="{x:Bind CpuPercentText, Mode=OneWay}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
-                                        <controls:Sparkline Values="{x:Bind MemoryHistory}" Width="40" Height="18" StrokeColor="MediumPurple" />
-                                        <TextBlock Text="{x:Bind MemoryPercentText}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
+                                        <controls:Sparkline Values="{x:Bind MemoryHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="MediumPurple" />
+                                        <TextBlock Text="{x:Bind MemoryPercentText, Mode=OneWay}" FontFamily="Cascadia Mono,Consolas" FontSize="11" />
                                     </StackPanel>
-                                    <controls:Sparkline Grid.Column="4" Values="{x:Bind NetworkHistory}" Width="50" Height="18" StrokeColor="SeaGreen" />
-                                    <controls:Sparkline Grid.Column="5" Values="{x:Bind DiskHistory}" Width="50" Height="18" StrokeColor="Chocolate" />
+                                    <controls:Sparkline Grid.Column="4" Values="{x:Bind NetworkHistory, Mode=OneWay}" Width="50" Height="18" StrokeColor="SeaGreen" />
+                                    <controls:Sparkline Grid.Column="5" Values="{x:Bind DiskHistory, Mode=OneWay}" Width="50" Height="18" StrokeColor="Chocolate" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -89,6 +97,13 @@
                 <StackPanel x:Name="MachineSection" Spacing="8" Visibility="Collapsed">
                     <TextBlock Text="Machine Utilisation" FontSize="16" FontWeight="SemiBold" />
                     <ListView x:Name="MachineRowsList" SelectionMode="None">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="MinHeight" Value="0" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:UtilisationRow">
                                 <Grid ColumnSpacing="8" Padding="6,4">
@@ -98,10 +113,10 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind Status}" Opacity="0.7" />
-                                    <controls:Sparkline Grid.Column="2" Values="{x:Bind CpuHistory}" Width="40" Height="18" StrokeColor="DodgerBlue" />
-                                    <controls:Sparkline Grid.Column="3" Values="{x:Bind MemoryHistory}" Width="40" Height="18" StrokeColor="MediumPurple" />
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" Opacity="0.7" />
+                                    <controls:Sparkline Grid.Column="2" Values="{x:Bind CpuHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="DodgerBlue" />
+                                    <controls:Sparkline Grid.Column="3" Values="{x:Bind MemoryHistory, Mode=OneWay}" Width="40" Height="18" StrokeColor="MediumPurple" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

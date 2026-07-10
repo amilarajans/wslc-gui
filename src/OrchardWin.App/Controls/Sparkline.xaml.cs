@@ -34,28 +34,38 @@ public sealed partial class Sparkline : UserControl
         set => SetValue(StrokeColorProperty, value);
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e) => Redraw();
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Ignore zero-size intermediate layout passes that would clear the polyline and flash.
+        if (e.NewSize.Width <= 0 || e.NewSize.Height <= 0) return;
+        Redraw();
+    }
 
     private void Redraw()
     {
         var values = Values;
         var width = RootGrid.ActualWidth;
         var height = RootGrid.ActualHeight;
-        if (values.Count < 2 || width <= 0 || height <= 0)
+        if (values is null || values.Count < 2 || width <= 0 || height <= 0)
         {
-            Line.Points.Clear();
+            // Keep previous geometry when layout is momentarily zero-sized (avoids flicker).
+            if (width <= 0 || height <= 0) return;
+            Line.Points = [];
             return;
         }
 
-        var max = Math.Max(values.Max(), 0.0001);
+        var max = 0.0001;
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] > max) max = values[i];
+        }
+
         var points = new PointCollection();
         var stepX = width / (values.Count - 1);
         for (var i = 0; i < values.Count; i++)
         {
             var normalized = Math.Clamp(values[i] / max, 0, 1);
-            var x = i * stepX;
-            var y = height - normalized * height;
-            points.Add(new Point(x, y));
+            points.Add(new Point(i * stepX, height - normalized * height));
         }
         Line.Points = points;
     }
