@@ -1,29 +1,24 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI;
-using Microsoft.UI.Xaml.Media;
 using OrchardWin.Core.Models;
 using OrchardWin.Core.Services;
-using Windows.UI;
 
 namespace OrchardWin.App.ViewModels;
 
 /// One row in the container list: the raw container plus the pre-computed display fields the
-/// page's ListItemRow template binds to directly (no value converters needed in XAML),
-/// mirroring how DashboardViewModel's `UtilisationRow` pre-computes its row's display fields
-/// rather than converting in XAML.
+/// page's row template binds to. No WinUI DependencyObjects here — brushes created off the
+/// UI thread (e.g. after async LoadAsync) crash with RPC_E_WRONG_THREAD (0x8001010E).
 public sealed record ContainerRowVm(
     Container Container,
     string PrimaryText,
     string SecondaryLeftText,
     string? SecondaryRightText,
-    Color IconColor,
+    bool IsRunning,
     bool ShowSandboxBadge)
 {
     public string Id => Container.Configuration.Id;
-    // FontIcon.Foreground needs a Brush; WASDK x:Bind rejects Color→Brush.
-    public SolidColorBrush IconBrush => new(IconColor);
+    public double IconOpacity => IsRunning ? 1.0 : 0.35;
 }
 
 /// Thin glue for ContainersPage: selection/filter/sort UI state and command wiring over
@@ -193,7 +188,7 @@ public sealed partial class ContainersViewModel : ObservableObject
             PrimaryText: name,
             SecondaryLeftText: secondaryLeft,
             SecondaryRightText: shortImage,
-            IconColor: IsRunning(c) ? Colors.LimeGreen : Colors.Gray,
+            IsRunning: IsRunning(c),
             ShowSandboxBadge: c.IsSandbox());
     }
 

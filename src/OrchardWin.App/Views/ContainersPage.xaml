@@ -8,6 +8,16 @@
     xmlns:vm="using:OrchardWin.App.ViewModels"
     mc:Ignorable="d">
 
+    <Page.Resources>
+        <Style x:Key="DetailCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+    </Page.Resources>
+
     <!-- Three-zone layout matching Orchard Containers: list | detail (header + metrics + config cards). -->
     <Grid ColumnSpacing="0">
         <Grid.ColumnDefinitions>
@@ -69,8 +79,11 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
+                            <!-- Theme brushes + opacity only (no SolidColorBrush in ViewModel / off-UI-thread). -->
                             <FontIcon Grid.Column="0" Glyph="&#xE7B8;" FontSize="14"
-                                      Foreground="{x:Bind IconBrush}" VerticalAlignment="Center" />
+                                      Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                      Opacity="{x:Bind IconOpacity}"
+                                      VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                                 <TextBlock Text="{x:Bind PrimaryText}" FontWeight="SemiBold" FontSize="13"
                                            TextTrimming="CharacterEllipsis" />
@@ -171,14 +184,4 @@
             </Grid>
         </Grid>
     </Grid>
-
-    <Page.Resources>
-        <Style x:Key="DetailCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Padding" Value="14" />
-        </Style>
-    </Page.Resources>
 </Page>

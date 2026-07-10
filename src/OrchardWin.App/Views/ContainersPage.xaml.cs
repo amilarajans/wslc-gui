@@ -57,7 +57,12 @@ public sealed partial class ContainersPage : Page
     {
         if (_viewModel is null) return;
         await _viewModel.LoadAsync();
-        TryApplyPendingSelection();
+        // Always re-enter UI thread after await — XAML updates must not run on the thread pool.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            TryApplyPendingSelection();
+            ApplyViewModelState();
+        });
     }
 
     private void TryApplyPendingSelection()

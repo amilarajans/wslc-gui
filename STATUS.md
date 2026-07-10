@@ -23,6 +23,7 @@ Update this file when direction or priorities change.
 | Sidebar grouped like Orchard | **Done** (Compute / Resources / Networking / Observability) |
 | Dashboard → Containers deep-link (click row) | **Done** |
 | Containers detail like Orchard screenshots | **Done** (metric cards + config wells) |
+| Containers nav crash (SolidColorBrush off UI thread) | **Done** — no DependencyObjects in row VMs |
 | Full feature parity (Mounts, Registries, etc.) | **In progress / partial** |
 | Polish remaining pages (Images, Machines, Networks, DNS, Models) to Orchard look | **Next** |
 
@@ -160,4 +161,4 @@ dotnet test tests/OrchardWin.App.Tests/OrchardWin.App.Tests.csproj -p:Platform=x
 
 ---
 
-*Last updated: 2026-07-10 — Containers detail UI + nav deep-links; document created for ongoing tracking.*
+*Last updated: 2026-07-10 — Fixed Containers crash (no SolidColorBrush in ViewModels / off-UI-thread).*

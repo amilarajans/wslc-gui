@@ -30,5 +30,7 @@ public sealed class ContainersViewModelNavigationTests
         Assert.Equal(2, second.ContainerRows.Count);
         Assert.Contains(second.ContainerRows, r => r.PrimaryText == "web");
         Assert.Contains(second.ContainerRows, r => r.PrimaryText == "db");
+        // Rows must not require creating WinUI DependencyObjects (SolidColorBrush) off-thread.
+        Assert.All(second.ContainerRows, r => Assert.InRange(r.IconOpacity, 0.0, 1.0));
     }
 }
