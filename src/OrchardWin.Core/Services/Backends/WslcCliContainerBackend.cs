@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using OrchardWin.Core.Models;
 
@@ -48,8 +49,7 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         var result = await RunAsync(["container", "ps", "--all", "--format", "json"], ct);
         if (result.Failed) throw OrchardWinException.CliFailed("container ps", result.ExitCode, result.Stderr);
 
-        var listed = ParseJsonArrayOrLines<WslcContainerListRow>(result.Stdout, "container list")
-            .Select(MapWslcContainerListRow)
+        var listed = ParseContainerListJson(result.Stdout)
             .Where(c => !MachineBackingContainer.IsMachine(c.Configuration.Labels))
             .ToList();
 
@@ -634,10 +634,130 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         public string Id { get; set; } = "";
         public string Image { get; set; } = "";
         public string Name { get; set; } = "";
-        public List<string>? Ports { get; set; }
+        /// <summary>
+        /// wslc 2.9.x list rows emit port objects
+        /// (<c>{ BindingAddress, ContainerPort, HostPort, Protocol }</c>);
+        /// older builds used string arrays. <see cref="WslcListPortsConverter"/> accepts both
+        /// so one published-port row cannot wipe the entire container list.
+        /// </summary>
+        [JsonConverter(typeof(WslcListPortsConverter))]
+        public List<WslcListPort>? Ports { get; set; }
         /// Verified: 1=created, 2=running, 3=exited (wslc 2.9.x).
         public int State { get; set; }
         public long StateChangedAt { get; set; }
+    }
+
+    private sealed class WslcListPort
+    {
+        public string? BindingAddress { get; set; }
+        public int ContainerPort { get; set; }
+        public int HostPort { get; set; }
+        /// Docker/wslc numeric protocol: 6=tcp, 17=udp.
+        public int Protocol { get; set; }
+        public string? ProtocolName { get; set; }
+    }
+
+    /// Accepts both legacy <c>["8080:80/tcp"]</c> and current object port arrays from wslc.
+    private sealed class WslcListPortsConverter : JsonConverter<List<WslcListPort>?>
+    {
+        public override List<WslcListPort>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null) return null;
+            if (reader.TokenType != JsonTokenType.StartArray)
+            {
+                reader.Skip();
+                return null;
+            }
+
+            var list = new List<WslcListPort>();
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndArray) break;
+
+                if (reader.TokenType == JsonTokenType.String)
+                {
+                    // Legacy "host:container/proto" or "container/proto".
+                    var s = reader.GetString() ?? "";
+                    if (TryParseLegacyPortString(s, out var port)) list.Add(port);
+                    continue;
+                }
+
+                if (reader.TokenType == JsonTokenType.StartObject)
+                {
+                    using var doc = JsonDocument.ParseValue(ref reader);
+                    var root = doc.RootElement;
+                    var port = new WslcListPort
+                    {
+                        BindingAddress = root.TryGetProperty("BindingAddress", out var ba) ? ba.GetString()
+                            : root.TryGetProperty("HostIp", out var hip) ? hip.GetString() : null,
+                        ContainerPort = ReadInt(root, "ContainerPort", "PrivatePort"),
+                        HostPort = ReadInt(root, "HostPort", "PublicPort"),
+                    };
+                    if (root.TryGetProperty("Protocol", out var proto))
+                    {
+                        if (proto.ValueKind == JsonValueKind.Number)
+                            port.Protocol = proto.GetInt32();
+                        else if (proto.ValueKind == JsonValueKind.String)
+                            port.ProtocolName = proto.GetString();
+                    }
+                    list.Add(port);
+                    continue;
+                }
+
+                reader.Skip();
+            }
+            return list;
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<WslcListPort>? value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value, options);
+
+        private static int ReadInt(JsonElement root, params string[] names)
+        {
+            foreach (var n in names)
+            {
+                if (!root.TryGetProperty(n, out var el)) continue;
+                if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var i)) return i;
+                if (el.ValueKind == JsonValueKind.String && int.TryParse(el.GetString(), out var s)) return s;
+            }
+            return 0;
+        }
+
+        private static bool TryParseLegacyPortString(string s, out WslcListPort port)
+        {
+            port = new WslcListPort();
+            // Examples: "8080:80/tcp", "127.0.0.1:8080->80/tcp", "80/tcp"
+            s = s.Trim();
+            if (string.IsNullOrEmpty(s)) return false;
+            var proto = "tcp";
+            var slash = s.LastIndexOf('/');
+            if (slash > 0)
+            {
+                proto = s[(slash + 1)..];
+                s = s[..slash];
+            }
+            port.ProtocolName = proto;
+            port.Protocol = string.Equals(proto, "udp", StringComparison.OrdinalIgnoreCase) ? 17 : 6;
+
+            // host:container or just container
+            var parts = s.Split(':', StringSplitOptions.TrimEntries);
+            if (parts.Length == 1 && int.TryParse(parts[0], out var cOnly))
+            {
+                port.ContainerPort = cOnly;
+                return true;
+            }
+            if (parts.Length >= 2
+                && int.TryParse(parts[^1], out var cPort)
+                && int.TryParse(parts[^2], out var hPort))
+            {
+                port.ContainerPort = cPort;
+                port.HostPort = hPort;
+                if (parts.Length >= 3)
+                    port.BindingAddress = string.Join(':', parts[..^2]);
+                return true;
+            }
+            return false;
+        }
     }
 
     private sealed class WslcNetworkListRow
@@ -755,6 +875,18 @@ public sealed class WslcCliContainerBackend : IContainerBackend
         _ => $"state-{state}",
     };
 
+    /// <summary>
+    /// Parse <c>wslc container ps --format json</c> stdout into domain containers (no inspect enrichment).
+    /// Public for unit tests that lock the Ports JSON shape without requiring a live wslc.
+    /// </summary>
+    public static IReadOnlyList<Container> ParseContainerListJsonForTests(string? stdout) =>
+        ParseContainerListJson(stdout);
+
+    private static List<Container> ParseContainerListJson(string? stdout) =>
+        ParseJsonArrayOrLines<WslcContainerListRow>(stdout, "container list")
+            .Select(MapWslcContainerListRow)
+            .ToList();
+
     private static Container MapWslcContainerListRow(WslcContainerListRow row)
     {
         var id = string.IsNullOrEmpty(row.Id) ? row.Name : row.Id;
@@ -793,11 +925,36 @@ public sealed class WslcCliContainerBackend : IContainerBackend
                 Resources = new Resources { Cpus = 0, MemoryInBytes = 0 },
                 Labels = new Dictionary<string, string>(),
                 Mounts = [],
-                PublishedPorts = [],
+                PublishedPorts = MapListPorts(row.Ports),
                 Sysctls = new Dictionary<string, string>(),
             },
             Networks = [],
         };
+    }
+
+    private static List<PublishedPort> MapListPorts(List<WslcListPort>? ports)
+    {
+        if (ports is null || ports.Count == 0) return [];
+        var list = new List<PublishedPort>(ports.Count);
+        foreach (var p in ports)
+        {
+            if (p.ContainerPort <= 0 && p.HostPort <= 0) continue;
+            list.Add(new PublishedPort
+            {
+                HostPort = p.HostPort,
+                ContainerPort = p.ContainerPort,
+                HostAddress = string.IsNullOrWhiteSpace(p.BindingAddress) ? null : p.BindingAddress,
+                TransportProtocol = !string.IsNullOrWhiteSpace(p.ProtocolName)
+                    ? p.ProtocolName!.ToLowerInvariant()
+                    : p.Protocol switch
+                    {
+                        17 => "udp",
+                        6 => "tcp",
+                        _ => "tcp",
+                    },
+            });
+        }
+        return list;
     }
 
 
@@ -975,9 +1132,11 @@ public sealed class WslcCliContainerBackend : IContainerBackend
             {
                 return JsonSerializer.Deserialize<List<T>>(trimmed, CaseInsensitiveJson) ?? [];
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
-                Log.Containers.Error($"{what}: could not decode JSON array: {Preview(trimmed)}");
+                // Log the exception type/message so shape regressions (e.g. Ports string→object)
+                // are obvious in %LOCALAPPDATA%\wslc-gui\logs instead of a silent empty list.
+                Log.Containers.Error($"{what}: could not decode JSON array ({ex.Message}): {Preview(trimmed)}");
                 return [];
             }
         }
