@@ -28,8 +28,8 @@ public sealed partial class StatsService : ObservableObject, IDisposable
 {
     /// Always-on sampling cadence - replaces Swift's fast (2s, view visible) / idle (10s,
     /// backgrounded) split with a single rate, since there's no cheap visibility signal to
-    /// gate on here.
-    public static readonly TimeSpan SamplingInterval = TimeSpan.FromSeconds(2);
+    /// gate on here. 1s keeps dashboard / container detail charts feeling live.
+    public static readonly TimeSpan SamplingInterval = TimeSpan.FromSeconds(1);
 
     private const string MachineKeyPrefix = "machine::";
 
@@ -43,6 +43,14 @@ public sealed partial class StatsService : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool _isStatsLoading;
+
+    /// <summary>
+    /// Monotonic UI pulse, incremented once per <see cref="SamplingInterval"/> whether or not
+    /// a sample batch produced new data. Dashboard, container detail, tray, and sparklines
+    /// subscribe so charts keep redrawing (zero baseline when empty).
+    /// </summary>
+    [ObservableProperty]
+    private long _tickRevision;
 
     // Dictionary<string, StatsSample> in the Swift original - hand-rolled (rather than
     // [ObservableProperty]) because it's mutated key-by-key from RecordSamples, not
@@ -139,16 +147,27 @@ public sealed partial class StatsService : ObservableObject, IDisposable
 
     private async Task TickAsync()
     {
-        await LoadAsync(showLoading: false);
-        if (!_backgroundSamplingEnabled) return;
-
-        // Persist roughly once a minute; a clean shutdown also saves via Shutdown()/ProcessExit.
-        _ticksSinceSave++;
-        var savesEvery = Math.Max(1, (int)Math.Round(60.0 / Math.Max(SamplingInterval.TotalSeconds, 1)));
-        if (_ticksSinceSave >= savesEvery)
+        try
         {
-            _ticksSinceSave = 0;
-            PersistNow(inBackground: true);
+            await LoadAsync(showLoading: false);
+        }
+        finally
+        {
+            if (_backgroundSamplingEnabled)
+            {
+                // Always pulse so UI charts refresh even when LoadAsync no-ops (overlap) or
+                // returns empty results (no running containers / stats errors).
+                TickRevision++;
+
+                // Persist roughly once a minute; a clean shutdown also saves via Shutdown()/ProcessExit.
+                _ticksSinceSave++;
+                var savesEvery = Math.Max(1, (int)Math.Round(60.0 / Math.Max(SamplingInterval.TotalSeconds, 1)));
+                if (_ticksSinceSave >= savesEvery)
+                {
+                    _ticksSinceSave = 0;
+                    PersistNow(inBackground: true);
+                }
+            }
         }
     }
 
@@ -212,7 +231,7 @@ public sealed partial class StatsService : ObservableObject, IDisposable
 
             RecordSamples(containerResults.Concat(machineResults), cpuCounts);
 
-            // Mutate in place — replacing ObservableCollection every 2s forces every listener
+            // Mutate in place — replacing ObservableCollection every tick forces every listener
             // to treat the list as brand-new (dashboard/containers flicker).
             var machineMapped = machineResults
                 .Select(s => s.With(s.Id[MachineKeyPrefix.Length..]))

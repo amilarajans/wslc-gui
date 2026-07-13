@@ -57,7 +57,15 @@ public sealed partial class TrayIcon : TaskbarIcon
                 or nameof(ContainerListService.LoadingContainers))
                 DispatcherQueue.RunOnUi(RefreshPanel);
         };
-        _services.StatsService.PropertyChanged += (_, _) => DispatcherQueue.RunOnUi(RefreshPanel);
+        // TickRevision pulses every second (even with no samples) so tray rings/charts stay live.
+        _services.StatsService.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null
+                or nameof(StatsService.ContainerStats)
+                or nameof(StatsService.MachineStats)
+                or nameof(StatsService.TickRevision))
+                DispatcherQueue.RunOnUi(RefreshPanel);
+        };
         _services.SystemService.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(SystemService.SystemStatus))
@@ -111,9 +119,9 @@ public sealed partial class TrayIcon : TaskbarIcon
 
     private void TrayPanel_Loaded(object sender, RoutedEventArgs e)
     {
-        // Keep data fresh while the popup is open (Orchard menu-bar 5s refresh).
+        // Keep container list fresh while the popup is open (stats charts use TickRevision / ChartPulse).
         _refreshTimer?.Stop();
-        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refreshTimer.Tick += async (_, _) =>
         {
             try

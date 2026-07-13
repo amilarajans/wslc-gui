@@ -55,16 +55,15 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
+          # WinUI 3 is consumed via Microsoft.WindowsAppSDK NuGet — no special workload install.
           dotnet-version: "10.0.x"
-
-      - name: Install Windows App SDK workload
-        run: dotnet workload install windowsappsdk --skip-manifest-update
 
       - name: Publish self-contained
         shell: pwsh
         run: |
           $out = "publish/${{ matrix.rid }}"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
+          # Restore+publish in one step so RID assets resolve correctly.
           dotnet publish src/OrchardWin.App/OrchardWin.App.csproj `
             -c Release `
             -r ${{ matrix.rid }} `

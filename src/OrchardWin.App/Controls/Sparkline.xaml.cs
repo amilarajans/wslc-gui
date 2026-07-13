@@ -11,7 +11,16 @@ public sealed partial class Sparkline : UserControl
     public Sparkline()
     {
         InitializeComponent();
+        Loaded += (_, _) =>
+        {
+            ChartPulse.EnsureStartedOnUiThread();
+            ChartPulse.Subscribe(OnPulse);
+            Redraw();
+        };
+        Unloaded += (_, _) => ChartPulse.Unsubscribe(OnPulse);
     }
+
+    private void OnPulse() => Redraw();
 
     public static readonly DependencyProperty ValuesProperty = DependencyProperty.Register(
         nameof(Values), typeof(IReadOnlyList<double>), typeof(Sparkline),
@@ -52,16 +61,10 @@ public sealed partial class Sparkline : UserControl
 
     private void Redraw()
     {
-        var values = Values;
+        var values = ChartPulse.EnsureDrawable(Values);
         var width = RootGrid.ActualWidth;
         var height = RootGrid.ActualHeight;
-        if (values is null || values.Count < 2 || width <= 0 || height <= 0)
-        {
-            if (width <= 0 || height <= 0) return;
-            Line.Data = null;
-            Glow.Data = null;
-            return;
-        }
+        if (width <= 0 || height <= 0) return;
 
         var softened = ChartPathBuilder.SoftenSeries(values, 0.5);
         var max = MaxValue > 0 ? MaxValue : 0.0001;

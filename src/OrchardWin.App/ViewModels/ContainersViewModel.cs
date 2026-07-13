@@ -88,10 +88,11 @@ public sealed partial class ContainersViewModel : ObservableObject
         };
         _services.StatsService.PropertyChanged += (_, e) =>
         {
-            // Only live stats collections drive the detail charts — ignore loading flags.
+            // TickRevision pulses every sample interval even with empty results so charts refresh.
             if (e.PropertyName is null
                 or nameof(StatsService.ContainerStats)
-                or nameof(StatsService.MachineStats))
+                or nameof(StatsService.MachineStats)
+                or nameof(StatsService.TickRevision))
             {
                 RaiseStatsChanged();
             }

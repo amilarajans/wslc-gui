@@ -165,7 +165,8 @@ public sealed partial class DashboardViewModel : ObservableObject
             if (e.PropertyName is null
                 or nameof(StatsService.ContainerStats)
                 or nameof(StatsService.MachineStats)
-                or nameof(StatsService.IsStatsLoading))
+                or nameof(StatsService.IsStatsLoading)
+                or nameof(StatsService.TickRevision))
                 QueueRefresh();
         };
         _services.ContainerListService.PropertyChanged += (_, e) =>
@@ -201,6 +202,16 @@ public sealed partial class DashboardViewModel : ObservableObject
     }
 
     public void SetWindow(StatsWindow window) => SelectedWindow = window;
+
+    /// <summary>
+    /// Dashboard 1s UI pulse: recompute metrics and bump <see cref="MetricsRevision"/> even when
+    /// StatsService has not delivered a new sample, so charts keep redrawing (zero baseline if empty).
+    /// </summary>
+    public void Pulse()
+    {
+        // Always run on the calling thread (UI timer) — do not depend on SynchronizationContext.
+        Refresh();
+    }
 
     private void QueueRefresh()
     {
@@ -305,31 +316,47 @@ public sealed partial class DashboardViewModel : ObservableObject
             if (keyed.Count > 0) containerHistories = keyed;
         }
 
-        var aggregate = StatsMath.Aggregate(containerHistories);
-        if (aggregate.Count < 2)
+        var aggregate = StatsMath.Aggregate(containerHistories).ToList();
+
+        // Always paint charts: pad to ≥2 points so MetricChart draws a baseline even before
+        // the first two stats samples arrive (or when the fleet is idle/empty).
+        SystemMetrics.HasData = true;
+        SystemMetrics.ReservedCores = reserved;
+        SystemMetrics.CpuSecondary = reserved > 0
+            ? $"{reserved} {(reserved == 1 ? "core" : "cores")} reserved"
+            : "No running containers";
+
+        if (aggregate.Count == 0)
         {
-            SystemMetrics.HasData = false;
-            SystemMetrics.ReservedCores = reserved;
-            SystemMetrics.CpuPrimary = "--";
-            SystemMetrics.CpuSecondary = reserved > 0 ? $"{reserved} cores reserved" : "";
-            SystemMetrics.MemoryPrimary = "--";
+            SystemMetrics.CpuPercent = 0;
+            SystemMetrics.CpuPrimary = "0%";
+            SystemMetrics.MemoryBytes = 0;
+            SystemMetrics.MemoryLimitBytes = 0;
+            SystemMetrics.MemoryPercent = 0;
+            SystemMetrics.MemoryPrimary = ByteFormat.Memory(0);
             SystemMetrics.MemorySecondary = "";
-            SystemMetrics.CpuSeries = Array.Empty<double>();
-            SystemMetrics.MemorySeries = Array.Empty<double>();
-            SystemMetrics.NetworkRxSeries = Array.Empty<double>();
-            SystemMetrics.NetworkTxSeries = Array.Empty<double>();
-            SystemMetrics.DiskReadSeries = Array.Empty<double>();
-            SystemMetrics.DiskWriteSeries = Array.Empty<double>();
+            SystemMetrics.NetworkRxText = "↓ 0.0 MB/s";
+            SystemMetrics.NetworkTxText = "↑ 0.0 MB/s";
+            SystemMetrics.DiskReadText = "R 0 KB/s";
+            SystemMetrics.DiskWriteText = "W 0 KB/s";
+            // Flat zero line (2 points) — visible empty chart, not a collapsed panel.
+            var zeros = (IReadOnlyList<double>)new[] { 0.0, 0.0 };
+            SystemMetrics.CpuSeries = zeros;
+            SystemMetrics.MemorySeries = zeros;
+            SystemMetrics.NetworkRxSeries = zeros;
+            SystemMetrics.NetworkTxSeries = zeros;
+            SystemMetrics.DiskReadSeries = zeros;
+            SystemMetrics.DiskWriteSeries = zeros;
             MetricsRevision++;
             return;
         }
 
+        if (aggregate.Count == 1)
+            aggregate.Add(aggregate[0]); // MetricChart needs ≥2 samples to stroke a path.
+
         var latest = aggregate[^1];
-        SystemMetrics.HasData = true;
-        SystemMetrics.ReservedCores = reserved;
         SystemMetrics.CpuPercent = latest.CpuPercent;
         SystemMetrics.CpuPrimary = $"{latest.CpuPercent:F0}%";
-        SystemMetrics.CpuSecondary = $"{reserved} {(reserved == 1 ? "core" : "cores")} reserved";
         SystemMetrics.MemoryBytes = latest.MemoryBytes;
         SystemMetrics.MemoryLimitBytes = latest.MemoryLimitBytes;
         SystemMetrics.MemoryPercent = latest.MemoryPercent;

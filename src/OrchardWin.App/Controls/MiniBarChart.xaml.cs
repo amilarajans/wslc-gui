@@ -15,11 +15,20 @@ public sealed partial class MiniBarChart : UserControl
     public MiniBarChart()
     {
         InitializeComponent();
+        Loaded += (_, _) =>
+        {
+            ChartPulse.EnsureStartedOnUiThread();
+            ChartPulse.Subscribe(OnPulse);
+            Redraw();
+        };
+        Unloaded += (_, _) => ChartPulse.Unsubscribe(OnPulse);
     }
+
+    private void OnPulse() => Redraw();
 
     public void SetValues(IReadOnlyList<double> values, Color color)
     {
-        _values = values ?? Array.Empty<double>();
+        _values = ChartPulse.EnsureDrawable(values);
         _color = color;
         Redraw();
     }

@@ -38,7 +38,21 @@ public sealed partial class MetricChart : UserControl
     public MetricChart()
     {
         InitializeComponent();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        ChartPulse.EnsureStartedOnUiThread();
+        ChartPulse.Subscribe(OnPulse);
+        Redraw();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) =>
+        ChartPulse.Unsubscribe(OnPulse);
+
+    private void OnPulse() => Redraw();
 
     public void SetSeries(
         IReadOnlyList<ChartSeries> series,
@@ -47,7 +61,31 @@ public sealed partial class MetricChart : UserControl
         Color? guideColor = null,
         bool mirrored = false)
     {
-        _series = series ?? Array.Empty<ChartSeries>();
+        // Always keep drawable series (≥2 points) so pulse/redraw never blanks the panel.
+        var list = series ?? Array.Empty<ChartSeries>();
+        _series = list.Select(s => new ChartSeries
+        {
+            Values = ChartPulse.EnsureDrawable(s.Values),
+            Stroke = s.Stroke,
+            Thickness = s.Thickness,
+            Fill = s.Fill,
+            Soften = s.Soften,
+            PlotBelow = s.PlotBelow,
+        }).ToList();
+        if (_series.Count == 0)
+        {
+            _series =
+            [
+                new ChartSeries
+                {
+                    Values = ChartPulse.EnsureDrawable(null),
+                    Stroke = Colors.Gray,
+                    Thickness = 1.2,
+                    Fill = true,
+                    Soften = 0,
+                },
+            ];
+        }
         _fixedMax = fixedMax;
         _guideValue = guideValue;
         _mirrored = mirrored;

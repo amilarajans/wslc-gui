@@ -547,10 +547,10 @@ public sealed partial class ContainersPage : Page
             _cpuBar.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
             if (running) _cpuBar.Value = Math.Clamp(_viewModel.SelectedSample?.CpuPercent ?? 0, 0, 100);
         }
-        // Match Memory style: smooth stroke + soft area fill under the curve.
+        // Always drawable (≥2 pts); charts also re-paint on ChartPulse / TickRevision.
         _cpuChart?.SetSeries(
         [
-            new ChartSeries { Values = _viewModel.SelectedCpuHistory, Stroke = CpuColor, Thickness = 1.6, Fill = true },
+            new ChartSeries { Values = ChartPulse.EnsureDrawable(_viewModel.SelectedCpuHistory), Stroke = CpuColor, Thickness = 1.6, Fill = true },
         ], fixedMax: 100);
 
         if (_memPrimary is not null) _memPrimary.Text = _viewModel.SelectedMemoryText;
@@ -568,25 +568,23 @@ public sealed partial class ContainersPage : Page
         }
         _memChart?.SetSeries(
         [
-            new ChartSeries { Values = _viewModel.SelectedMemoryHistory, Stroke = MemColor, Thickness = 1.6, Fill = true },
+            new ChartSeries { Values = ChartPulse.EnsureDrawable(_viewModel.SelectedMemoryHistory), Stroke = MemColor, Thickness = 1.6, Fill = true },
         ], guideValue: memLimit > 0 ? memLimit : null);
 
         if (_netRxText is not null) _netRxText.Text = _viewModel.SelectedNetworkRxText;
         if (_netTxText is not null) _netTxText.Text = _viewModel.SelectedNetworkTxText;
-        // Uploads (tx) above center, downloads (rx) below.
         _netChart?.SetSeries(
         [
-            new ChartSeries { Values = _viewModel.SelectedNetworkTxHistory, Stroke = NetTxColor, Thickness = 1.6, Fill = true, PlotBelow = false },
-            new ChartSeries { Values = _viewModel.SelectedNetworkRxHistory, Stroke = NetRxColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+            new ChartSeries { Values = ChartPulse.EnsureDrawable(_viewModel.SelectedNetworkTxHistory), Stroke = NetTxColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = ChartPulse.EnsureDrawable(_viewModel.SelectedNetworkRxHistory), Stroke = NetRxColor, Thickness = 1.6, Fill = true, PlotBelow = true },
         ], mirrored: true);
 
         if (_diskRText is not null) _diskRText.Text = _viewModel.SelectedDiskReadText;
         if (_diskWText is not null) _diskWText.Text = _viewModel.SelectedDiskWriteText;
-        // Read above, write below.
         _diskChart?.SetSeries(
         [
-            new ChartSeries { Values = _viewModel.SelectedDiskReadHistory, Stroke = DiskRColor, Thickness = 1.6, Fill = true, PlotBelow = false },
-            new ChartSeries { Values = _viewModel.SelectedDiskWriteHistory, Stroke = DiskWColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+            new ChartSeries { Values = ChartPulse.EnsureDrawable(_viewModel.SelectedDiskReadHistory), Stroke = DiskRColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = ChartPulse.EnsureDrawable(_viewModel.SelectedDiskWriteHistory), Stroke = DiskWColor, Thickness = 1.6, Fill = true, PlotBelow = true },
         ], mirrored: true);
     }
 

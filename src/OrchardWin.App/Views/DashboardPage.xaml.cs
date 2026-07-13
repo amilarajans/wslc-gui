@@ -73,6 +73,13 @@ public sealed partial class DashboardPage : Page
             if (_viewModel is not null) await _viewModel.RefreshDiskUsageQuietAsync();
         };
         _diskRefreshTimer.Start();
+
+        // Immediate paint; ongoing refresh is StatsService.TickRevision (1 Hz, app-wide).
+        if (_viewModel is not null)
+        {
+            _viewModel.Pulse();
+            ApplySystemCharts();
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -148,8 +155,9 @@ public sealed partial class DashboardPage : Page
         if (_viewModel is null) return;
         var m = _viewModel.SystemMetrics;
 
-        SystemChartsGrid.Visibility = m.HasData ? Visibility.Visible : Visibility.Collapsed;
-        SystemEmptyText.Visibility = m.HasData ? Visibility.Collapsed : Visibility.Visible;
+        // Charts always stay visible; empty series still draws a zero baseline.
+        SystemChartsGrid.Visibility = Visibility.Visible;
+        SystemEmptyText.Visibility = Visibility.Collapsed;
 
         CpuPrimaryText.Text = m.CpuPrimary;
         CpuSecondaryText.Text = m.CpuSecondary;
@@ -166,32 +174,36 @@ public sealed partial class DashboardPage : Page
         DiskReadText.Text = m.DiskReadText;
         DiskWriteText.Text = m.DiskWriteText;
 
-        if (!m.HasData) return;
+        var cpuSeries = ChartPulse.EnsureDrawable(m.CpuSeries);
+        var memSeries = ChartPulse.EnsureDrawable(m.MemorySeries);
+        var netTx = ChartPulse.EnsureDrawable(m.NetworkTxSeries);
+        var netRx = ChartPulse.EnsureDrawable(m.NetworkRxSeries);
+        var diskR = ChartPulse.EnsureDrawable(m.DiskReadSeries);
+        var diskW = ChartPulse.EnsureDrawable(m.DiskWriteSeries);
 
         // Match Memory style: smooth stroke + soft area fill under the curve.
         CpuChart.SetSeries(
         [
-            new ChartSeries { Values = m.CpuSeries, Stroke = CpuColor, Thickness = 1.6, Fill = true },
+            new ChartSeries { Values = cpuSeries, Stroke = CpuColor, Thickness = 1.6, Fill = true },
         ]);
 
         MemChart.SetSeries(
         [
-            new ChartSeries { Values = m.MemorySeries, Stroke = MemColor, Thickness = 1.6, Fill = true },
+            new ChartSeries { Values = memSeries, Stroke = MemColor, Thickness = 1.6, Fill = true },
         ], guideValue: m.MemoryLimitBytes > 0 ? m.MemoryLimitBytes : null);
 
-        // Mirrored I/O: uploads (tx) above center, downloads (rx) below — Orchard networkChart style
-        // (user preference: out on top, in underneath the zero line).
+        // Mirrored I/O: uploads (tx) above center, downloads (rx) below.
         NetChart.SetSeries(
         [
-            new ChartSeries { Values = m.NetworkTxSeries, Stroke = NetTxColor, Thickness = 1.6, Fill = true, PlotBelow = false },
-            new ChartSeries { Values = m.NetworkRxSeries, Stroke = NetRxColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+            new ChartSeries { Values = netTx, Stroke = NetTxColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = netRx, Stroke = NetRxColor, Thickness = 1.6, Fill = true, PlotBelow = true },
         ], mirrored: true);
 
-        // Disk same mirrored split: read above, write below.
         DiskChart.SetSeries(
         [
-            new ChartSeries { Values = m.DiskReadSeries, Stroke = DiskRColor, Thickness = 1.6, Fill = true, PlotBelow = false },
-            new ChartSeries { Values = m.DiskWriteSeries, Stroke = DiskWColor, Thickness = 1.6, Fill = true, PlotBelow = true },
+            new ChartSeries { Values = diskR, Stroke = DiskRColor, Thickness = 1.6, Fill = true, PlotBelow = false },
+            new ChartSeries { Values = diskW, Stroke = DiskWColor, Thickness = 1.6, Fill = true, PlotBelow = true },
         ], mirrored: true);
     }
+
 }
