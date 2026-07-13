@@ -21,14 +21,17 @@
     <Description>Windows GUI for WSL containers (wslc)</Description>
     <Version Condition="'$(Version)' == ''">0.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x86;x64;ARM64</Platforms>
-    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- x64 first: plain `dotnet build OrchardWin.sln` (Any CPU) should not land on x86. -->
+    <Platforms>x64;x86;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-x86;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>false</EnableMsixTooling>
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- Framework-dependent + self-contained WASDK is fine for local debug.
+         Do NOT default SelfContained=true here — that forces a RuntimeIdentifier and
+         collides with PlatformTarget=x86 when the solution maps "Any CPU" → x86
+         (NETSDK1032). Pass -p:SelfContained=true only on publish. -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <!-- Unpackaged self-contained publish: ships WASDK + runtime next to the exe. -->
-    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>

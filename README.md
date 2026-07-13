@@ -89,7 +89,9 @@ git clone https://github.com/amilarajans/wslc-gui.git
 cd wslc-gui
 
 dotnet restore OrchardWin.sln
-dotnet build OrchardWin.sln -c Debug -p:Platform=x64
+dotnet build OrchardWin.sln
+# equivalent explicit platform:
+# dotnet build OrchardWin.sln -c Debug -p:Platform=x64
 dotnet run --project src/OrchardWin.App/OrchardWin.App.csproj -c Debug -p:Platform=x64
 ```
 
