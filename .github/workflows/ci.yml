@@ -36,9 +36,11 @@ jobs:
       - name: Test Core
         run: >
           dotnet test tests/OrchardWin.Core.Tests/OrchardWin.Core.Tests.csproj
-          -c Release --verbosity normal --no-build
+          -c Release --verbosity normal
 
       - name: Test App
+        # Build+test without --no-build: App.Tests is Any CPU and may not share
+        # the x64 App build output path from the previous solution build step.
         run: >
           dotnet test tests/OrchardWin.App.Tests/OrchardWin.App.Tests.csproj
-          -c Release -p:Platform=x64 --verbosity normal --no-build
+          -c Release -p:Platform=x64 --verbosity normal
