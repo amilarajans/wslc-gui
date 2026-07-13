@@ -1,0 +1,175 @@
+name: Release
+
+# Distributes a portable self-contained Windows build as a GitHub Release ZIP.
+# Trigger:
+#   - git tag v1.2.3 && git push origin v1.2.3
+#   - Actions → Release → Run workflow (optional version input)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label when not tagging (e.g. 0.2.0-dev)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.rid }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            platform: x64
+          - rid: win-arm64
+            platform: ARM64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="0.0.0-ci.${GITHUB_RUN_NUMBER}"
+          fi
+          # Strip leading v if someone typed v1.0.0 into the input.
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Windows App SDK workload
+        run: dotnet workload install windowsappsdk --skip-manifest-update
+
+      - name: Publish self-contained
+        shell: pwsh
+        run: |
+          $out = "publish/${{ matrix.rid }}"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet publish src/OrchardWin.App/OrchardWin.App.csproj `
+            -c Release `
+            -r ${{ matrix.rid }} `
+            -p:Platform=${{ matrix.platform }} `
+            -p:SelfContained=true `
+            -p:WindowsPackageType=None `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:PublishReadyToRun=true `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -p:FileVersion=${{ steps.ver.outputs.version }} `
+            -p:InformationalVersion=${{ steps.ver.outputs.version }} `
+            -o $out
+          if (-not (Test-Path "$out/wslc-gui.exe")) {
+            Write-Error "Expected $out/wslc-gui.exe after publish"
+            Get-ChildItem $out | Select-Object -First 40 Name
+            exit 1
+          }
+          Get-ChildItem $out | Select-Object Name, Length | Format-Table
+
+      - name: Stage zip
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $rid = "${{ matrix.rid }}"
+          $name = "wslc-gui-$ver-$rid"
+          $src = "publish/$rid"
+          $stage = "dist/$name"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Path "$src/*" -Destination $stage -Recurse -Force
+
+          # Small readme next to the exe so downloaders know how to run it.
+          @"
+          wslc-gui $ver ($rid)
+          ====================
+
+          Portable Windows build of https://github.com/amilarajans/wslc-gui
+
+          Requirements
+          ------------
+          - Windows 11 (WinUI 3 / Windows App SDK)
+          - WSL containers preview so ``wslc`` is on PATH:
+              wsl --update --pre-release
+              wslc --version
+
+          Run
+          ---
+          1. Unzip this folder anywhere (e.g. %LOCALAPPDATA%\wslc-gui)
+          2. Double-click ``wslc-gui.exe``
+          3. If Windows SmartScreen blocks it, choose More info → Run anyway
+             (unsigned CI builds are normal until code signing is added)
+
+          Logs
+          ----
+          %LOCALAPPDATA%\wslc-gui\logs\
+          "@ | Set-Content -Path "$stage/README.txt" -Encoding UTF8
+
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Compress-Archive -Path "$stage/*" -DestinationPath "artifacts/$name.zip" -Force
+          Get-Item "artifacts/$name.zip" | Format-List Name, Length, FullName
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wslc-gui-${{ steps.ver.outputs.version }}-${{ matrix.rid }}
+          path: artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Create GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    # Only cut a GitHub Release for real version tags (not ad-hoc workflow_dispatch).
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all zips
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: wslc-gui-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f -ls
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*.zip
+          body: |
+            ## wslc-gui ${{ github.ref_name }}
+
+            Portable **self-contained** Windows builds (Windows App SDK bundled).
+
+            ### Download
+            - **x64** (most PCs): `wslc-gui-*-win-x64.zip`
+            - **ARM64** (Snapdragon / ARM Windows): `wslc-gui-*-win-arm64.zip`
+
+            ### Install
+            1. Unzip
+            2. Run `wslc-gui.exe`
+            3. Ensure `wslc` works: `wsl --update --pre-release` then `wslc --version`
+
+            Builds are **unsigned** — SmartScreen may warn until code signing is configured.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

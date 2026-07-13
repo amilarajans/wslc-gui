@@ -61,6 +61,27 @@ Compared to upstream [Orchard](https://github.com/andrew-waters/orchard) sidebar
    ```
    Visual Studio **2026** is recommended for full `net10.0` IDE support (CLI builds work with the SDK alone).
 
+## Download (prebuilt)
+
+GitHub Actions publishes **portable ZIPs** on version tags:
+
+1. Open [Releases](https://github.com/amilarajans/wslc-gui/releases)
+2. Download `wslc-gui-<version>-win-x64.zip` (or `win-arm64` on ARM Windows)
+3. Unzip and run `wslc-gui.exe`
+
+You still need **WSL containers** (`wslc` on PATH). Builds are self-contained for .NET / Windows App SDK but are **unsigned** (SmartScreen may prompt).
+
+### Cut a release
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That runs [`.github/workflows/release.yml`](.github/workflows/release.yml): publish `win-x64` + `win-arm64`, attach ZIPs to the GitHub Release.
+
+You can also run **Actions → Release → Run workflow** to build ZIPs without tagging (artifacts only, no Release page).
+
 ## Build & run
 
 ```powershell
@@ -72,6 +93,17 @@ dotnet build OrchardWin.sln -c Debug -p:Platform=x64
 dotnet run --project src/OrchardWin.App/OrchardWin.App.csproj -c Debug -p:Platform=x64
 ```
 
+### Publish a portable folder locally
+
+```powershell
+dotnet publish src/OrchardWin.App/OrchardWin.App.csproj `
+  -c Release -r win-x64 -p:Platform=x64 `
+  -p:SelfContained=true -p:WindowsPackageType=None `
+  -p:WindowsAppSDKSelfContained=true `
+  -o publish/win-x64
+# then run publish\win-x64\wslc-gui.exe
+```
+
 ## Tests
 
 ```powershell
@@ -79,6 +111,12 @@ dotnet test tests/OrchardWin.Core.Tests/OrchardWin.Core.Tests.csproj
 dotnet test tests/OrchardWin.App.Tests/OrchardWin.App.Tests.csproj -p:Platform=x64
 ```
 
+## CI
+
+| Workflow | When | What |
+|----------|------|------|
+| [CI](.github/workflows/ci.yml) | push / PR to `main` | restore, build Release x64, run tests |
+| [Release](.github/workflows/release.yml) | tag `v*` or manual | self-contained publish → ZIP → GitHub Release |
 Core tests cover service load / equality short-circuit. App tests cover ViewModel tab re-entry
 (hydration after navigation) so Images/Containers don’t go blank when switching sections.
 

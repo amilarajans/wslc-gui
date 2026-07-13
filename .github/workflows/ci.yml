@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & test (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Windows App SDK workload
+        run: dotnet workload install windowsappsdk --skip-manifest-update
+
+      - name: Restore
+        run: dotnet restore OrchardWin.sln
+
+      - name: Build
+        run: dotnet build OrchardWin.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Test Core
+        run: >
+          dotnet test tests/OrchardWin.Core.Tests/OrchardWin.Core.Tests.csproj
+          -c Release --verbosity normal
+
+      - name: Test App
+        run: >
+          dotnet test tests/OrchardWin.App.Tests/OrchardWin.App.Tests.csproj
+          -c Release -p:Platform=x64 --verbosity normal
